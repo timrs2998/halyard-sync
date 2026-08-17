@@ -1,0 +1,120 @@
+# AGENTS.md
+
+Conventions for working in this repository, whether you're a human or an agent.
+
+This plugin was developed with substantial AI assistance (Claude).
+
+## What this plugin is
+
+Tether Sync syncs an Obsidian vault with a git repository over HTTPS, on desktop and
+mobile, using real libgit2 compiled to WebAssembly. Two guarantees drive most design
+decisions and must not regress:
+
+1. **Never write conflict markers into a note.** Conflicts are reported and parked on
+   a branch; they are never resolved by dirtying the working tree.
+2. **Never lose local work.** Every conflict strategy either preserves local state on
+   a pushed branch or asks for explicit confirmation first.
+
+## Layout
+
+```
+src/
+  main.ts            Plugin entry: lifecycle, commands, wiring, WASM loading
+  settings.ts        Settings model and tab UI, incl. git-crypt key import
+  git/
+    engine.ts        GitEngine: clone/fetch/commit/push/merge/status/branch
+    fs-adapter.ts    DataAdapter structural types + path normalization
+    http-client.ts   requestUrl structural types, timeout and logging wrappers
+    gitcrypt.ts      git-crypt on-disk format: blob encrypt/decrypt, key parsing
+    libgit2/         The compiled engine. See its own README.
+  auth/              Provider abstraction, device flows, PAT fallback, secrets
+  sync/              Orchestrator state machine, conflict strategies, scheduler
+  ui/                Status bar, sync panel, modals
+tests/               vitest, including tests/libgit2/ against the real module
+e2e/                 WebdriverIO against real Obsidian
+```
+
+## Commands
+
+| Command | What it gates |
+|---|---|
+| `npm run dev` | esbuild watch → `main.js`, plus the `.wasm` copy |
+| `npm run build` | `tsc --noEmit`, production esbuild, `.wasm` copy. **Type errors fail here.** |
+| `npm run lint` | eslint: dead code and unused imports |
+| `npm test` | vitest, ~371 tests, against the real compiled libgit2 module |
+| `npm run test:e2e` | Real Obsidian, desktop and emulated-mobile. Needs a build first. |
+
+All four must pass before a PR.
+
+Some tests shell out to real `git`. `tests/gitcrypt.test.ts`'s cross-compatibility
+suite is gated on `hasGitCrypt()` and **skips silently** without the git-crypt CLI
+installed — CI installs it, so a local pass is weaker than a CI pass. Install
+git-crypt locally if you touch `gitcrypt.ts` or `filter_shim.c`.
+
+## The WASM module
+
+`src/git/libgit2/build/dist/tether-libgit2.{js,wasm}` is **compiled output, committed
+on purpose** so that running, testing and contributing need no Docker or Emscripten.
+
+- **Don't hand-edit it.** Regenerate via
+  [`src/git/libgit2/build/BUILD.md`](src/git/libgit2/build/BUILD.md) — Docker only.
+- Regeneration is required only when `native/*.c`, `build/build.sh`, or
+  `build/versions.env` changes. `.github/workflows/build-wasm.yml` rebuilds on those
+  paths and **fails if the committed artifact doesn't match**, so commit the rebuilt
+  files with the change that caused them.
+- `tether-libgit2.wasm` must ship alongside `main.js`, `manifest.json` and
+  `styles.css`. There is no fallback engine: a missing `.wasm` fails at first sync,
+  not at load.
+- Read [`src/git/libgit2/README.md`](src/git/libgit2/README.md) before touching
+  `fs-backend.ts`. It lists four real bugs that are easy to reintroduce.
+
+## Testing philosophy
+
+Test against real artifacts, not mocks.
+
+- `tests/libgit2/` runs against the **actual compiled module**, with real repos, a
+  real `git http-backend` smart-HTTP server, and real `git cat-file` cross-checks.
+- `tests/gitcrypt.test.ts` verifies round-trips against the **real git-crypt CLI** in
+  both directions, not just self-consistency.
+- Pure logic (sync decision table, provider detection, conflict branch naming,
+  scheduler catch-up math, status classification) is unit-tested directly. Nothing
+  needs a live vault.
+- `sync-panel-model.ts` exists so the sync panel's logic is testable without
+  importing obsidian; `sync-view.ts` stays a thin DOM renderer over it. Preserve that
+  split.
+
+## Hard rules
+
+- **Never commit `data.json`.** It can hold plaintext tokens and git-crypt key
+  material. It is gitignored; leave it that way.
+- **Never commit secrets** in tests, fixtures, or docs — no real tokens, no private
+  remote URLs, no personal repository paths.
+- `main.js` and the root `tether-libgit2.wasm` are build output and gitignored.
+- Use `requestUrl`, never `fetch`.
+- `isDesktopOnly: false`, so no Node or Electron APIs, no subprocesses, and no
+  filesystem access outside `app.vault.adapter` in plugin code. (Tests may shell out;
+  they run under Node.)
+- Engine-touching operations serialize through the async lock. Don't bypass it.
+- `createGitEngine` is async and expensive — it loads WASM and hydrates the vault.
+  Cache it; use `updateOptions()` for settings changes rather than rebuilding.
+
+## Style
+
+- Tabs for indentation; see `.editorconfig`. Double-quoted strings.
+- `noUnusedLocals` and `noUnusedParameters` are on. Prefix intentionally unused
+  parameters with `_`.
+- Comments explain **why**, not what. Don't narrate history — if a comment describes
+  a previous implementation, delete it and let git history carry that.
+- Document real gaps honestly where they live. The credential-retry limitation in
+  `installHttpDispatch` is the model: state what doesn't work and why, don't hide it.
+- Prefer active verbs and short sentences in comments and user-facing strings alike.
+- Never point users at `DESIGN.md` from UI text.
+
+## Releasing
+
+1. Bump `manifest.json`, `package.json` and `versions.json` together.
+2. Tag **without** a `v` prefix (`git tag 1.2.3`). Obsidian's validation requires the
+   tag to equal `manifest.json`'s version exactly.
+3. Pushing the tag runs `.github/workflows/release.yml`, which re-verifies the match
+   and attaches `manifest.json`, `main.js`, `styles.css` and `tether-libgit2.wasm` as
+   individual assets — never a zip.

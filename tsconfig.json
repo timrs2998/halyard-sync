@@ -1,0 +1,24 @@
+{
+	"compilerOptions": {
+		"baseUrl": ".",
+		"target": "ES2020",
+		"module": "ESNext",
+		"moduleResolution": "Bundler",
+		"lib": ["DOM", "ES2020"],
+		"types": ["node", "@wdio/globals/types", "wdio-obsidian-service"],
+		"strict": true,
+		"noImplicitAny": true,
+		"strictNullChecks": true,
+		"noUnusedLocals": true,
+		"noUnusedParameters": true,
+		"esModuleInterop": true,
+		"allowSyntheticDefaultImports": true,
+		"skipLibCheck": true,
+		"isolatedModules": true,
+		"forceConsistentCasingInFileNames": true,
+		"noEmit": true,
+		"inlineSourceMap": true,
+		"inlineSources": true
+	},
+	"include": ["src/**/*.ts", "tests/**/*.ts", "e2e/**/*.ts", "wdio.conf.mts"]
+}

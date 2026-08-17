@@ -1,0 +1,123 @@
+/* Tether Sync — plugin styles. Obsidian loads this file automatically from
+   the plugin folder alongside manifest.json/main.js; nothing here is bundled
+   into main.js and no manual registration is needed. */
+
+/* Device-code display in the OAuth device-flow modal (ui/modals.ts). */
+.tether-sync-device-code {
+	font-size: 2em;
+	font-weight: bold;
+	letter-spacing: 0.15em;
+	text-align: center;
+	margin: 0.5em 0;
+	user-select: text;
+}
+
+/* Inline validation error text (ui/modals.ts setup wizard). */
+.tether-sync-error-text {
+	color: var(--text-error);
+}
+
+/* Detected-existing-remote prefill hint (ui/modals.ts setup wizard step 1). */
+.tether-sync-hint-text {
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+}
+
+/* Setup wizard modal (ui/modals.ts SetupWizardModal) — Obsidian's default
+   modal width is sized for short settings rows, not a URL field or a row
+   with two buttons plus a token field; both were visibly cramped. */
+.tether-sync-wizard-modal {
+	width: min(640px, 92vw);
+}
+
+/* Lets a row's controls (e.g. two buttons plus a saved-token notice) wrap
+   onto multiple lines instead of squeezing into one narrow strip. */
+.tether-sync-wizard-modal .setting-item-control {
+	flex-wrap: wrap;
+	justify-content: flex-end;
+}
+
+/* Full-width text fields (remote URL, token) instead of Obsidian's default
+   short-field sizing, which is sized for compact settings values. */
+.tether-sync-wide-input {
+	width: 100%;
+	flex: 1 1 auto;
+}
+
+/* Insecure secret-storage warning banner (settings.ts Account section). */
+.tether-sync-warning-banner {
+	padding: 0.6em 1em;
+	margin-bottom: 0.8em;
+}
+
+/* Ribbon icon (main.ts) — tinted when there's something to look at. */
+.tether-sync-ribbon-attention {
+	color: var(--text-warning);
+}
+
+.tether-sync-ribbon-error {
+	color: var(--text-error);
+}
+
+/* Syncing state (main.ts's updateRibbon): the tether cord (ui/icon.ts's
+   custom icon, the .tether-sync-icon-cord path) "flows" along its own
+   length instead of the whole glyph spinning — keeps the anchor dots
+   still, reads as data moving along the tether rather than a generic
+   loading spinner. stroke-dasharray sum is 18, so a -36 (2x) dashoffset
+   travel per cycle loops seamlessly with no visible seam/jump. */
+.tether-sync-ribbon-syncing svg .tether-sync-icon-cord {
+	stroke-dasharray: 10 8;
+	animation: tether-sync-flow 0.9s linear infinite;
+}
+
+@keyframes tether-sync-flow {
+	to {
+		stroke-dashoffset: -36;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.tether-sync-ribbon-syncing svg .tether-sync-icon-cord {
+		animation: none;
+	}
+}
+
+/* Sync history list (ui/modals.ts SyncHistoryModal). */
+.tether-sync-history-list {
+	list-style: none;
+	padding: 0;
+	margin: 0;
+}
+
+.tether-sync-history-list li {
+	padding: 0.4em 0;
+	border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.tether-sync-history-message {
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+	margin-top: 0.2em;
+}
+
+/* Right-sidebar sync panel (ui/sync-view.ts). */
+.tether-sync-view {
+	padding: 0 0.5em;
+}
+
+.tether-sync-view-detail {
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+}
+
+.tether-sync-view-next-sync {
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+	margin-top: -0.5em;
+}
+
+/* The git-crypt key-file picker is driven by a button, never shown directly
+   (ui/modals.ts's attachGitCryptKeyImportButton). */
+.tether-sync-hidden-file-input {
+	display: none;
+}

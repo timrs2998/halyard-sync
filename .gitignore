@@ -1,0 +1,30 @@
+# build output
+main.js
+dist/
+*.js.map
+
+# esbuild copies this next to main.js on every build — a regenerable copy of
+# src/git/libgit2/build/dist/tether-libgit2.wasm, not source.
+/tether-libgit2.wasm
+
+# The compiled libgit2-WASM artifacts ARE committed, so consuming this repo
+# needs no Docker/Emscripten. The `dist/` rule above would otherwise match them.
+!src/git/libgit2/build/dist/
+!src/git/libgit2/build/dist/**
+
+# Build cache: large, machine-specific, regenerable.
+src/git/libgit2/build/.build-work/
+
+# dependencies
+node_modules/
+
+# environment / editor cruft
+.DS_Store
+Thumbs.db
+.claude/
+
+# Obsidian plugin runtime data (never commit tokens)
+data.json
+
+# wdio-obsidian-service: downloaded/cached real Obsidian builds for e2e tests
+.obsidian-cache

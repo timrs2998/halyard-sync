@@ -1,0 +1,49 @@
+name: Release Obsidian plugin
+
+on:
+  push:
+    # No "v" prefix: Obsidian's release validation requires the release tag
+    # to match manifest.json's "version" field exactly (e.g. "1.0.0", not
+    # "v1.0.0"). Tag with `git tag 1.0.0 && git push origin 1.0.0`.
+    tags:
+      - "[0-9]+.[0-9]+.[0-9]+"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20.x"
+          cache: "npm"
+
+      - run: npm ci
+
+      - run: npm run lint
+
+      - run: npm run build
+
+      - run: npm test
+
+      - name: Verify tag matches manifest.json version
+        run: |
+          tag="${GITHUB_REF#refs/tags/}"
+          manifest_version=$(node -p "require('./manifest.json').version")
+          if [ "$tag" != "$manifest_version" ]; then
+            echo "Tag '$tag' does not match manifest.json version '$manifest_version'"
+            exit 1
+          fi
+
+      - name: Create release and upload assets
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="${GITHUB_REF#refs/tags/}"
+          gh release create "$tag" \
+            --title "$tag" \
+            --generate-notes \
+            manifest.json main.js styles.css tether-libgit2.wasm
