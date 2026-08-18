@@ -18,7 +18,8 @@ import {
 import { parseGitConfigRemoteUrl } from "./git/gitconfig";
 import { withRequestLogging, withRequestTimeout, type RequestUrlLike } from "./git/http-client";
 import { wrapLibgit2Module } from "./git/libgit2/engine";
-import { instantiateLibgit2Module, LIBGIT2_WASM_FILENAME } from "./git/libgit2/loader";
+import { instantiateLibgit2Module } from "./git/libgit2/loader";
+import { libgit2WasmBytes } from "./git/libgit2/wasm-binary";
 import { parseKeyFile } from "./git/gitcrypt";
 import { AsyncLock } from "./sync/async-lock";
 import { ConflictResolver, generateDeviceName } from "./sync/conflicts";
@@ -411,21 +412,9 @@ export default class TetherSyncPlugin extends Plugin {
 		});
 	}
 
-	private async readWasmBytes(): Promise<ArrayBuffer> {
-		const dir = this.manifest.dir;
-		if (!dir) {
-			throw new Error(
-				"Tether Sync: could not resolve the plugin's own directory to load " +
-					`${LIBGIT2_WASM_FILENAME} — this should never happen for a plugin ` +
-					"loaded from a real vault."
-			);
-		}
-		return this.app.vault.adapter.readBinary(normalizePath(`${dir}/${LIBGIT2_WASM_FILENAME}`));
-	}
-
 	private async buildEngine(): Promise<GitEngine> {
 		return createGitEngine({
-			instantiateModule: () => instantiateLibgit2Module(() => this.readWasmBytes()),
+			instantiateModule: () => instantiateLibgit2Module(async () => libgit2WasmBytes()),
 			wrapModule: (rawModule, requestUrlFn) => wrapLibgit2Module(rawModule, { requestUrl: requestUrlFn }),
 			requestUrl: this.wrapRequestUrl(requestUrl),
 			adapter: this.app.vault.adapter,

@@ -1,83 +1,63 @@
 /**
- * Closes the gap `src/git/libgit2/loader.ts`'s header calls out as NOT PROVEN:
- * that `manifest.dir` resolves to a readable path via
- * `app.vault.adapter.readBinary` inside a real running Obsidian, that the
- * esbuild-bundled glue survives Obsidian's own plugin-loading CJS wrapper, and
- * that `tether-libgit2.wasm` actually ships next to `main.js` from an install.
+ * Proves the libgit2 WASM engine loads inside a real Obsidian install.
  *
- * `tests/libgit2/loader.test.ts` proves the loading MECHANISM against the real
- * artifact under Node. This proves the same path inside Obsidian's Electron
- * renderer (and, via the emulated-mobile capability, the mobile UI too), which
- * is the only place `manifest.dir` and `readBinary` actually exist.
+ * The install shape is the whole point. `wdio-obsidian-service`'s
+ * `plugins: ["."]` reproduces exactly what Obsidian's community installer and
+ * BRAT deliver — `main.js`, `manifest.json`, `styles.css` and nothing else.
+ * A sibling `tether-libgit2.wasm` never arrives by that route, which is why
+ * the binary is embedded in `main.js` as base64 (see
+ * `src/git/libgit2/wasm-binary.ts`).
  *
- * The `beforeEach` copy is not scaffolding — it is the finding. A standard
- * Obsidian plugin install is main.js + manifest.json + styles.css, and that is
- * exactly what wdio-obsidian-service's `plugins: ["."]` reproduces: the `.wasm`
- * is silently dropped and the engine dies with ENOENT at first sync, not at
- * load. Every install path has to place the fourth file deliberately. See
- * RELEASE.md, which already says all four files are required.
+ * So the first test below asserts the sibling file is ABSENT and the engine
+ * builds regardless. That combination is the regression guard: it fails if
+ * anyone reverts to shipping the binary beside `main.js`.
  *
- * Deliberately offline: it stops at "the engine is built and functional", which
- * is where the WASM risk lives. Anything past that is network behaviour already
- * covered by `tests/engine-smoke.test.ts`.
+ * Deliberately offline — it stops at "the engine is built and functional",
+ * which is where the WASM risk lives. Network behaviour is covered by
+ * `tests/engine-smoke.test.ts`.
  */
 
 import { browser, expect } from "@wdio/globals";
-import { before, describe, it } from "mocha";
-import { obsidianPage } from "wdio-obsidian-service";
-import { copyFileSync, existsSync, mkdirSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { describe, it } from "mocha";
+import { statSync } from "node:fs";
 
 const WASM = "tether-libgit2.wasm";
 
 describe("Tether Sync's libgit2 WASM engine in a real Obsidian instance", function () {
-	before(function () {
-		const pluginDir = join(obsidianPage.getVaultPath(), ".obsidian", "plugins", "tether-sync");
-		mkdirSync(pluginDir, { recursive: true });
-		copyFileSync(WASM, join(pluginDir, WASM));
-	});
-
-	it("ships tether-libgit2.wasm next to main.js and can read it back", async function () {
-		const result = await browser.executeObsidian(async ({ app }, wasmName: string) => {
-			const plugin = (app as unknown as { plugins: { plugins: Record<string, { manifest?: { dir?: string } }> } })
-				.plugins.plugins["tether-sync"];
-			const dir = plugin?.manifest?.dir;
-			if (dir === undefined) return { dir: null, bytes: -1, error: "manifest.dir is undefined" };
-			try {
-				const buf = await app.vault.adapter.readBinary(`${dir}/${wasmName}`);
-				return { dir, bytes: buf.byteLength, error: null };
-			} catch (err) {
-				return { dir, bytes: -1, error: String(err) };
-			}
-		}, WASM);
-
-		expect(result.error).toBe(null);
-		// A truncated read or an error page would be orders of magnitude smaller
-		// than the real ~1.7 MB artifact.
-		expect(result.bytes).toBe(statSync(WASM).size);
-	});
-
-	it("instantiates the module and builds a working engine", async function () {
+	it("builds a working engine with no sibling .wasm in the plugin directory", async function () {
 		// WASM instantiation plus the initial VaultMirror hydration is real work.
 		this.timeout(120 * 1000);
 
-		const result = await browser.executeObsidian(async ({ app }) => {
+		const result = await browser.executeObsidian(async ({ app }, wasmName: string) => {
 			const plugin = (app as unknown as {
-				plugins: { plugins: Record<string, { getEngine?: () => Promise<unknown> }> };
+				plugins: {
+					plugins: Record<string, { manifest?: { dir?: string }; getEngine?: () => Promise<unknown> }>;
+				};
 			}).plugins.plugins["tether-sync"];
-			if (plugin?.getEngine === undefined) return { ok: false, methods: [] as string[], error: "getEngine missing" };
+
+			const dir = plugin?.manifest?.dir;
+			if (dir === undefined) return { siblingWasmExists: null, ok: false, methods: [] as string[], error: "manifest.dir is undefined" };
+
+			// A real install delivers three files. Confirm the binary genuinely
+			// is not on disk, so the engine below can only come from the embed.
+			const siblingWasmExists = await app.vault.adapter.exists(`${dir}/${wasmName}`);
+
+			if (plugin.getEngine === undefined) return { siblingWasmExists, ok: false, methods: [] as string[], error: "getEngine missing" };
 			try {
 				const engine = (await plugin.getEngine()) as Record<string, unknown>;
 				const methods = Object.getOwnPropertyNames(Object.getPrototypeOf(engine) as object).filter(
 					(n) => typeof engine[n] === "function"
 				);
-				return { ok: true, methods, error: null };
+				return { siblingWasmExists, ok: true, methods, error: null };
 			} catch (err) {
-				return { ok: false, methods: [] as string[], error: String(err) };
+				return { siblingWasmExists, ok: false, methods: [] as string[], error: String(err) };
 			}
-		});
+		}, WASM);
 
 		expect(result.error).toBe(null);
+		// The bug this guards: BRAT and the community installer drop the fourth
+		// file, and the engine used to die with ENOENT at first sync.
+		expect(result.siblingWasmExists).toBe(false);
 		expect(result.ok).toBe(true);
 		// Prove the real GitEngine surface came back, not a partial object.
 		expect(result.methods).toContain("clone");
@@ -133,10 +113,12 @@ describe("Tether Sync's libgit2 WASM engine in a real Obsidian instance", functi
 	});
 });
 
-// Guards the assumption the `before` hook is compensating for, so this stays
-// honest if the harness ever starts shipping the file on its own.
-describe("plugin install completeness", function () {
-	it("has a built wasm artifact at the project root to install", function () {
-		expect(existsSync(WASM)).toBe(true);
+describe("plugin packaging", function () {
+	it("embeds the wasm binary in main.js rather than shipping it alongside", function () {
+		// The base64 embed makes main.js roughly the binary's size plus a third.
+		// A main.js smaller than the binary means the embed was dropped and
+		// installs would regress to ENOENT.
+		const wasmBytes = statSync(`src/git/libgit2/build/dist/${WASM}`).size;
+		expect(statSync("main.js").size).toBeGreaterThan(wasmBytes);
 	});
 });

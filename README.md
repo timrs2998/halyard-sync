@@ -67,11 +67,10 @@ Basic-auth convention requires for pull requests even though git sync itself doe
 **BRAT** (beta) — install [BRAT](https://github.com/TfTHacker/obsidian42-brat),
 then "Add beta plugin" with `timrs2998/tether-sync`.
 
-**Manual** — download `manifest.json`, `main.js`, `styles.css` **and
-`tether-libgit2.wasm`** from the
+**Manual** — download `manifest.json`, `main.js` and `styles.css` from the
 [latest release](https://github.com/timrs2998/tether-sync/releases) into
-`<vault>/.obsidian/plugins/tether-sync/`. All four files are required; a missing
-`.wasm` fails at first sync, not at load.
+`<vault>/.obsidian/plugins/tether-sync/`. The libgit2 binary is embedded in
+`main.js`, so there is no fourth file to copy.
 
 ## Setup
 
@@ -196,8 +195,8 @@ uses the settings overrides under Account → Advanced.
 
 ```bash
 npm install
-npm run dev      # esbuild watch -> main.js (also copies tether-libgit2.wasm)
-npm run build    # typecheck + production bundle + copy tether-libgit2.wasm
+npm run dev      # esbuild watch -> main.js
+npm run build    # typecheck + production bundle
 npm run lint     # eslint
 npm test         # vitest: pure logic + real tests against the compiled libgit2
 npm run test:e2e # real Obsidian, driven headlessly via WebdriverIO
@@ -216,7 +215,7 @@ Emscripten. Regenerate them only when `src/git/libgit2/native/*.c` changes — s
 [wdio-obsidian-service](https://github.com/jesse-r-s-hines/wdio-obsidian-service),
 which downloads a real Obsidian build (cached in `.obsidian-cache/`, gitignored) and
 drives it against `e2e/vaults/simple` — once as desktop Obsidian, once under
-emulated-mobile UI. Requires `main.js` and `tether-libgit2.wasm` to be built first.
+emulated-mobile UI. Requires `main.js` to be built first.
 
 Architecture lives in [DESIGN.md](DESIGN.md), the engine layer in
 [`src/git/libgit2/README.md`](src/git/libgit2/README.md), and contributor conventions
@@ -228,7 +227,7 @@ in [AGENTS.md](AGENTS.md).
   together, commits, and tags `x.y.z`
 - `git push origin main --tags`
 - GitHub Actions builds, verifies the tag matches `manifest.json`, and attaches
-  `manifest.json`, `main.js`, `styles.css` and `tether-libgit2.wasm` to the release
+  `manifest.json`, `main.js` and `styles.css` to the release
 
 No `v` prefix on the tag — Obsidian requires it to equal `manifest.json`'s version
 exactly. `.npmrc`'s `tag-version-prefix=""` is what keeps `npm version` from adding one.

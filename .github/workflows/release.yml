@@ -46,4 +46,4 @@ jobs:
           gh release create "$tag" \
             --title "$tag" \
             --generate-notes \
-            manifest.json main.js styles.css tether-libgit2.wasm
+            manifest.json main.js styles.css

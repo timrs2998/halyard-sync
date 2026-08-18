@@ -15,7 +15,8 @@ to regenerate the compiled module.
 |---|---|
 | `binding.ts` | The TS-side contract: the minimal surface the compiled module exposes. Fully implemented by `engine.ts`. |
 | `engine.ts` | The `Libgit2Module` / `Libgit2Repository` implementation. Wraps the compiled module's `ccall`/`cwrap` surface with error mapping (`Libgit2Error`, via `git_error_last()`) and malloc/free discipline. |
-| `loader.ts` | Loads the `.wasm` at runtime via `app.vault.adapter.readBinary`, against a path derived from the plugin's own `manifest.dir`. |
+| `loader.ts` | Instantiates the module through a `Module.instantiateWasm` override. Takes the bytes from an injected callback, so tests read the artifact off disk while the plugin passes the embed. |
+| `wasm-binary.ts` | The compiled `.wasm`, embedded in `main.js` as base64 — Obsidian's installer and BRAT deliver only `manifest.json`, `main.js` and `styles.css`, so a sibling file never arrives. |
 | `fs-backend.ts` | `VaultMirror`, an in-memory mirror of the vault, and `describeClassicFsBackend`, which mounts it into the module's Emscripten FS. |
 | `http-transport.ts` | `basicAuthHeader`, `SmartHttpRequestSpec`, `SmartHttpProtocolError`, `validateSmartHttpResponse` — what `engine.ts`'s dispatch closure consumes. |
 | `native/filter_shim.c` | The git-crypt-compatible clean/smudge filter. Matches libgit2's bare `filter` attribute and dispatches on the resolved value, so both the default key and `filter=git-crypt-<name>` named keys round-trip. |
@@ -26,7 +27,7 @@ to regenerate the compiled module.
 
 ## Compiled output vs. authored source
 
-**Authored, reviewable as source:** everything under `native/*.c`, the four
+**Authored, reviewable as source:** everything under `native/*.c`, the five
 `.ts` files above, `build/build.sh`, `build/Dockerfile`, `build/versions.env`,
 `build/BUILD.md`, this README, and every file under `tests/libgit2/`.
 

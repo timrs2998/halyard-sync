@@ -3,8 +3,8 @@ main.js
 dist/
 *.js.map
 
-# esbuild copies this next to main.js on every build — a regenerable copy of
-# src/git/libgit2/build/dist/tether-libgit2.wasm, not source.
+# No longer produced: the binary is embedded into main.js as base64. Kept
+# ignored so a stale copy from an older build is never committed.
 /tether-libgit2.wasm
 
 # The compiled libgit2-WASM artifacts ARE committed, so consuming this repo

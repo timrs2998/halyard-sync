@@ -1,6 +1,5 @@
 import esbuild from "esbuild";
 import process from "node:process";
-import { copyFileSync } from "node:fs";
 import builtins from "builtin-modules";
 
 const banner = `/*
@@ -29,19 +28,6 @@ const externalBuiltins = builtins.filter((m) => m !== "buffer");
 // that isn't (and doesn't need to be) a real dependency.
 const wasmOnlyExternals = ["ws"];
 
-/** Copies the compiled libgit2 `.wasm` binary next to `main.js` — the WASM
- * loader (`git/libgit2/loader.ts`) reads it at runtime via
- * `app.vault.adapter.readBinary` against a path derived from the plugin's
- * own `manifest.dir`, so it must ship alongside `main.js`/`manifest.json`/
- * `styles.css` in the plugin's directory (see that file's header comment for
- * the full packaging decision). */
-function copyCompiledWasm() {
-	copyFileSync(
-		"src/git/libgit2/build/dist/tether-libgit2.wasm",
-		"tether-libgit2.wasm"
-	);
-}
-
 const context = await esbuild.context({
 	banner: {
 		js: banner,
@@ -58,6 +44,13 @@ const context = await esbuild.context({
 		...wasmOnlyExternals,
 	],
 	inject: ["./polyfill-buffer.js"],
+	// The compiled libgit2 binary is embedded in main.js as base64 rather than
+	// shipped beside it: Obsidian's installer and BRAT only ever fetch
+	// manifest.json, main.js and styles.css from a release. See
+	// src/git/libgit2/wasm-binary.ts.
+	loader: {
+		".wasm": "base64",
+	},
 	format: "cjs",
 	target: "es2018",
 	logLevel: "info",
@@ -71,9 +64,7 @@ const context = await esbuild.context({
 
 if (prod) {
 	await context.rebuild();
-	copyCompiledWasm();
 	process.exit(0);
 } else {
-	copyCompiledWasm();
 	await context.watch();
 }

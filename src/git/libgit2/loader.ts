@@ -53,30 +53,19 @@
  *      override point is honored regardless of `ENVIRONMENT_IS_NODE`/`_WEB`.
  *
  * ---------------------------------------------------------------------------
- * What's proven here vs. what still needs a real Obsidian smoke test
+ * Where the bytes come from
  * ---------------------------------------------------------------------------
  *
- * PROVEN (real, in `tests/libgit2/loader.test.ts`): `instantiateLibgit2Module`
- * below, given a `readWasmBytes` callback returning the ACTUAL compiled
- * `.wasm` bytes read off disk (standing in for
- * `app.vault.adapter.readBinary(manifest.dir + "/tether-libgit2.wasm")`),
- * successfully instantiates the real compiled module end-to-end (calls a
- * real libgit2 entry point afterwards to prove the returned `Module` is
- * fully functional, not just "didn't throw"). This proves the loading
- * MECHANISM (the `instantiateWasm` override contract, the manual
- * failure-propagation wrapper below) works against the real artifact.
+ * This module never reads a file. `readWasmBytes` is injected, and the plugin
+ * passes the base64 binary embedded in `main.js` (see `wasm-binary.ts` for why
+ * a sibling file is not deliverable). Keeping the bytes behind a callback is
+ * what lets `tests/libgit2/loader.test.ts` feed the real artifact straight off
+ * disk without pulling in the embed.
  *
- * NOT PROVEN (no real Obsidian environment available to this phase): that
- * `this.manifest.dir` resolves to a real, readable path via
- * `app.vault.adapter.readBinary` inside an actual running Obsidian instance
- * on desktop or mobile, that the esbuild-bundled copy of the compiled glue
- * behaves identically once wrapped in Obsidian's own plugin-loading CJS
- * wrapper, or that the `tether-libgit2.wasm` file actually ships correctly
- * from a real install (manual vault-folder copy, BRAT, or a future
- * community-plugin release all need to include that extra file next to
- * `main.js`/`manifest.json`/`styles.css` — `esbuild.config.mjs` copies it
- * into the project root as part of `npm run build`/`npm run dev`, but no
- * automated test here proves an actual Obsidian install picks it up).
+ * `e2e/specs/libgit2-loader.e2e.ts` proves the rest inside a real Obsidian:
+ * that the esbuild-bundled glue survives Obsidian's plugin-loading CJS
+ * wrapper, and that the engine builds from a three-file install with no
+ * `.wasm` on disk at all.
  */
 
 import TetherLibgit2Factory from "./build/dist/tether-libgit2.js";
@@ -84,15 +73,9 @@ import { wrapLibgit2Module } from "./engine";
 import type { Libgit2Module } from "./binding";
 import type { RequestUrlLike } from "../http-client";
 
-/** The filename this loader expects to find next to `main.js` (see
- * `esbuild.config.mjs`'s post-build copy step). */
-export const LIBGIT2_WASM_FILENAME = "tether-libgit2.wasm";
-
 export interface LoadLibgit2ModuleOptions {
-	/** Reads the compiled `.wasm` binary's bytes. In the real plugin this is
-	 * `() => app.vault.adapter.readBinary(normalizePath(`${manifest.dir}/${LIBGIT2_WASM_FILENAME}`))`
-	 * — injected here (rather than importing 'obsidian') so this module stays
-	 * unit-testable with a plain Node `fs.readFileSync`. */
+	/** Supplies the compiled `.wasm` bytes. The plugin passes the embedded
+	 * binary (`wasm-binary.ts`); tests pass a plain `fs.readFileSync`. */
 	readWasmBytes: () => Promise<ArrayBuffer>;
 	/** Routed into every network operation — see `engine.ts`'s
 	 * `installHttpDispatch` doc comment for the credential model this

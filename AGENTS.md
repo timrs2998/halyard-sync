@@ -62,9 +62,12 @@ on purpose** so that running, testing and contributing need no Docker or Emscrip
   `build/versions.env` changes. `.github/workflows/build-wasm.yml` rebuilds on those
   paths and runs the full test suite against the rebuild, so a broken recipe fails
   there. Commit the rebuilt files with the change that caused them.
-- `tether-libgit2.wasm` must ship alongside `main.js`, `manifest.json` and
-  `styles.css`. There is no fallback engine: a missing `.wasm` fails at first sync,
-  not at load.
+- **The binary is embedded in `main.js` as base64** (`wasm-binary.ts`), not
+  shipped beside it. Obsidian's community installer and BRAT fetch only
+  `manifest.json`, `main.js` and `styles.css` from a release and drop every
+  other asset, so a sibling file reaches nobody who didn't copy it by hand.
+  `e2e/specs/libgit2-loader.e2e.ts` guards this by asserting the engine builds
+  with no `.wasm` on disk.
 - Read [`src/git/libgit2/README.md`](src/git/libgit2/README.md) before touching
   `fs-backend.ts`. It lists four real bugs that are easy to reintroduce.
 
@@ -89,7 +92,7 @@ Test against real artifacts, not mocks.
   material. It is gitignored; leave it that way.
 - **Never commit secrets** in tests, fixtures, or docs — no real tokens, no private
   remote URLs, no personal repository paths.
-- `main.js` and the root `tether-libgit2.wasm` are build output and gitignored.
+- `main.js` is build output and gitignored.
 - Use `requestUrl`, never `fetch`.
 - `isDesktopOnly: false`, so no Node or Electron APIs, no subprocesses, and no
   filesystem access outside `app.vault.adapter` in plugin code. (Tests may shell out;
@@ -117,7 +120,8 @@ Test against real artifacts, not mocks.
   and tags `x.y.z`.
 - `git push origin main --tags`
 - `.github/workflows/release.yml` re-verifies the tag against `manifest.json` and
-  attaches `manifest.json`, `main.js`, `styles.css` and `tether-libgit2.wasm` as individual assets — never a zip.
+  attaches `manifest.json`, `main.js` and `styles.css` as individual assets —
+  never a zip.
 
 The tag takes no `v` prefix: Obsidian's validation requires it to equal
 `manifest.json`'s version exactly. `.npmrc` sets `tag-version-prefix=""` so

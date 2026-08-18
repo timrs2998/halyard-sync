@@ -46,17 +46,25 @@ These are environmental facts that drive the whole design:
    (`src/git/libgit2/http-transport.ts`'s `basicAuthHeader`) needs a Buffer polyfill on
    mobile — esbuild `inject` of a `polyfill-buffer.js` that uses the global Node Buffer
    on desktop and the `buffer` npm polyfill on mobile.
-8. **WASM packaging:** esbuild bundles the compiled Emscripten glue
-   (`src/git/libgit2/build/dist/tether-libgit2.js`) directly into `main.js` like any
-   other module, but the compiled `.wasm` binary (1.67 MB) is shipped as a SEPARATE
-   file next to `main.js`/`manifest.json`/`styles.css` (copied there by
-   `esbuild.config.mjs` on every build) and loaded at runtime via a
-   `Module.instantiateWasm` override reading its bytes through
-   `app.vault.adapter.readBinary` against a path derived from `manifest.dir` — see
-   `src/git/libgit2/loader.ts`'s header comment for the full decision (base64-embedding
-   the `.wasm` inside `main.js` was considered and rejected: ~2.2 MB of bundle size for
-   no corresponding benefit here, unlike this project's other, genuinely load-bearing
-   mobile-memory tradeoffs).
+8. **WASM packaging: everything ships inside `main.js`.** esbuild bundles the
+   compiled Emscripten glue (`build/dist/tether-libgit2.js`) like any other module,
+   and the 1.67 MB `.wasm` binary is embedded alongside it as base64 (~2.3 MB), decoded
+   once per engine construction by `src/git/libgit2/wasm-binary.ts` and handed to a
+   `Module.instantiateWasm` override.
+
+   This is forced by how Obsidian distributes plugins. **The community installer and
+   BRAT fetch exactly `manifest.json`, `main.js` and `styles.css` from a release and
+   ignore every other asset.** A separate `.wasm` therefore reaches only users who
+   copy files by hand; everyone else gets `ENOENT` at first sync. Fetching it at
+   runtime is not an alternative — the developer policies forbid a plugin carrying its
+   own update mechanism and require every network destination to be disclosed, and it
+   would make a working install depend on being online.
+
+   An earlier revision shipped the binary as a sibling file, having weighed the bundle
+   size against "no corresponding benefit". That was wrong: the benefit it missed is
+   that the plugin installs at all. `e2e/specs/libgit2-loader.e2e.ts` now asserts the
+   engine builds with **no** `.wasm` on disk, so the regression cannot return
+   silently.
 
 ## Architecture
 
@@ -448,7 +456,7 @@ here given how hard-to-reverse history-rewriting operations are.
   `obsidian`/`electron` external, `buffer` polyfill injected (NOT external),
   `ws` external (referenced, but never actually invoked, by the compiled Emscripten
   glue's dead WebSocket-transport code path — see `libgit2/loader.ts`), the compiled
-  `tether-libgit2.wasm` copied next to `main.js` on every build, `npm run dev` watch,
+  the compiled `.wasm` embedded into `main.js` as base64, `npm run dev` watch,
   `version-bump.mjs` + `versions.json`.
 - Deps: `buffer` — the polyfill exists solely for
   `libgit2/http-transport.ts`'s `basicAuthHeader`. Dev: `obsidian` (^1.13), `esbuild`,
