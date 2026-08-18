@@ -60,8 +60,8 @@ on purpose** so that running, testing and contributing need no Docker or Emscrip
   [`src/git/libgit2/build/BUILD.md`](src/git/libgit2/build/BUILD.md) — Docker only.
 - Regeneration is required only when `native/*.c`, `build/build.sh`, or
   `build/versions.env` changes. `.github/workflows/build-wasm.yml` rebuilds on those
-  paths and **fails if the committed artifact doesn't match**, so commit the rebuilt
-  files with the change that caused them.
+  paths and runs the full test suite against the rebuild, so a broken recipe fails
+  there. Commit the rebuilt files with the change that caused them.
 - `tether-libgit2.wasm` must ship alongside `main.js`, `manifest.json` and
   `styles.css`. There is no fallback engine: a missing `.wasm` fails at first sync,
   not at load.
@@ -112,9 +112,14 @@ Test against real artifacts, not mocks.
 
 ## Releasing
 
-1. Bump `manifest.json`, `package.json` and `versions.json` together.
-2. Tag **without** a `v` prefix (`git tag 1.2.3`). Obsidian's validation requires the
-   tag to equal `manifest.json`'s version exactly.
-3. Pushing the tag runs `.github/workflows/release.yml`, which re-verifies the match
-   and attaches `manifest.json`, `main.js`, `styles.css` and `tether-libgit2.wasm` as
-   individual assets — never a zip.
+- `npm version x.y.z` — the repo's `version` hook runs `version-bump.mjs`, so
+  `package.json`, `manifest.json` and `versions.json` all move together. It commits
+  and tags `x.y.z`.
+- `git push origin main --tags`
+- `.github/workflows/release.yml` re-verifies the tag against `manifest.json` and
+  attaches `manifest.json`, `main.js`, `styles.css` and `tether-libgit2.wasm` as individual assets — never a zip.
+
+The tag takes no `v` prefix: Obsidian's validation requires it to equal
+`manifest.json`'s version exactly. `.npmrc` sets `tag-version-prefix=""` so
+`npm version` doesn't add one. Don't hand-edit the three version files; the one
+command keeps them consistent.
