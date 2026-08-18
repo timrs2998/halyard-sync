@@ -5,6 +5,12 @@ on:
     branches: ["**"]
   pull_request:
 
+# A newer push to the same ref makes the in-flight run obsolete. Cancelling it
+# frees the runner immediately instead of queueing behind work nobody wants.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
@@ -16,15 +22,25 @@ jobs:
           node-version: "20.x"
           cache: "npm"
 
-      # The test suite shells out to real `git` (repo fixtures, `git http-backend`
-      # smart-HTTP servers, `git cat-file` cross-checks against the compiled
-      # module's own output). Installing the real git-crypt CLI flips
-      # tests/gitcrypt.test.ts's hasGitCrypt()-gated cross-compatibility suite
-      # from skipped to actually running, in both directions.
-      - name: Install git and git-crypt
+      # Only git-crypt: `git` itself is preinstalled on ubuntu-latest, and the
+      # test suite's real git usage (repo fixtures, `git http-backend`
+      # smart-HTTP servers, `git cat-file` cross-checks) works with it as
+      # shipped. Installing git-crypt is what flips tests/gitcrypt.test.ts's
+      # hasGitCrypt()-gated cross-compatibility suite from skipped to actually
+      # running, in both directions.
+      #
+      # The runner image ships third-party apt sources (Microsoft, Docker,
+      # GitHub CLI, ...) alongside Ubuntu's own. `apt-get update` refreshes all
+      # of them, and one slow or unreachable host drags a normally
+      # ~10-second step into the multi-minute range. git-crypt lives in
+      # Ubuntu's universe, so drop everything else first. `ubuntu.sources` is
+      # kept by name because 24.04 images put Ubuntu's own repos there.
+      - name: Install git-crypt
+        timeout-minutes: 3
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends git git-crypt
+          sudo find /etc/apt/sources.list.d -type f ! -name 'ubuntu.sources' -delete
+          sudo apt-get update -qq -o Acquire::Languages=none
+          sudo apt-get install -y -qq --no-install-recommends git-crypt
           git --version
           git-crypt --version
 

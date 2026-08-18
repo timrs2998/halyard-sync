@@ -11,6 +11,10 @@ name: Rebuild libgit2 WASM
 # correctness. Drift is reported for a human to look at, not treated as failure.
 #
 # A cold build takes 10-15 minutes; see src/git/libgit2/build/BUILD.md.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   workflow_dispatch:
   push:
@@ -18,7 +22,6 @@ on:
       - "src/git/libgit2/native/**"
       - "src/git/libgit2/build/build.sh"
       - "src/git/libgit2/build/versions.env"
-      - ".github/workflows/build-wasm.yml"
   pull_request:
     paths:
       - "src/git/libgit2/native/**"
@@ -39,9 +42,10 @@ jobs:
       # through CMake, and git-crypt unskips the real cross-compatibility suite
       # in tests/gitcrypt.test.ts.
       - name: Install build and test dependencies
+        timeout-minutes: 5
         run: |
-          apt-get update
-          apt-get install -y --no-install-recommends cmake build-essential git git-crypt
+          apt-get update -qq -o Acquire::Languages=none
+          apt-get install -y -qq --no-install-recommends cmake build-essential git git-crypt
 
       - uses: actions/checkout@v4
 
