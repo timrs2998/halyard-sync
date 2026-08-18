@@ -8,7 +8,7 @@
  *
  * What this proves, all against the real compiled module and a real local
  * `git http-backend` CGI server (`helpers/git-http-backend.ts`, extended in
- * this phase to optionally require Basic auth and reject/serve
+ * the helper to optionally require Basic auth and reject/serve
  * accordingly):
  *
  *   1. `native/transport_shim.c`'s `tether_register_http_transport` (this

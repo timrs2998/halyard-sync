@@ -10,14 +10,12 @@
  * esbuild bundles this plugin into a single `main.js`. The compiled
  * Emscripten glue (`build/dist/tether-libgit2.js`) is plain JS with no
  * special loading needs, so it is imported statically below and esbuild
- * inlines it directly into `main.js` like any other module (confirmed by
- * running the real production build — see `esbuild.config.mjs`). The
- * `.wasm` binary is the actual open question the phase brief asked to
- * settle for real, and the options were:
+ * inlines it directly into `main.js` like any other module. The `.wasm`
+ * binary needs a real decision, and the options were:
  *
  *   1. **Emscripten's default `locateFile`-based fetch/readFileSync.**
  *      Rejected: it branches on `ENVIRONMENT_IS_NODE`/`ENVIRONMENT_IS_WEB`
- *      (confirmed by reading the real compiled glue — see this repo's phase
+ *      (confirmed by reading the real compiled glue — see this repo's
  *      notes for the exact `ENVIRONMENT_IS_NODE=globalThis.process?.versions?.node
  *      && globalThis.process?.type!="renderer"` check), and neither branch
  *      is right here: Obsidian desktop is Electron's renderer process (so

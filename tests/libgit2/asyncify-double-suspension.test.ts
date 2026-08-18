@@ -36,6 +36,7 @@ import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { encryptBlob } from "../../src/git/gitcrypt";
 import { startGitHttpBackend } from "./helpers/git-http-backend";
+import { mountHostDir } from "./helpers/nodefs-mount";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
@@ -144,8 +145,7 @@ describe.skipIf(factory === null)("Asyncify double-suspension probe (real fetch 
 			const Module = await factory!();
 
 			const destDir = mkdtempSync(join(tmpdir(), "tether-http-client-"));
-			Module.FS.mkdir("/dest");
-			Module.FS.mount(Module.NODEFS, { root: destDir }, "/dest");
+			mountHostDir(Module, destDir, "/dest");
 
 			Module.__gitcryptDecrypt = async (_keyName: string, ciphertext: Uint8Array) => {
 				const { decryptBlob } = await import("../../src/git/gitcrypt");

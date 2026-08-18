@@ -95,12 +95,10 @@ import { toAdapterPath } from "../fs-adapter";
  * integers. Emscripten's musl-derived `ERRNO_CODES` table assigns numbers
  * that do NOT match POSIX/glibc's familiar values (e.g. its `ENOENT` is not
  * 2) and that table only exists inside a built module (`Module.ERRNO_CODES`
- * / `FS.ErrnoError`) — hardcoding numbers here without a compiled runtime to
- * check them against would be exactly the kind of "untested glue presented
- * as verified" the phase brief warns against. The (thin, unverified) classic
- * FS wrapper at the bottom of this file is where the symbolic code below
- * would be translated into a real `FS.ErrnoError(Module.ERRNO_CODES[code])`
- * once that runtime exists.
+ * / `FS.ErrnoError`), so hardcoding integers here would bake in numbers
+ * nothing can check at authoring time. The classic FS wrapper at the bottom
+ * of this file translates the symbolic codes below into a real
+ * `FS.ErrnoError(Module.ERRNO_CODES[code])` against the live runtime.
  */
 export type VaultMirrorErrorCode =
 	| "ENOENT"

@@ -305,7 +305,7 @@ describe("SyncOrchestrator decision table", () => {
 	});
 
 	it("diverged with no file list (MergeNotSupportedError) reports an honest message", async () => {
-		// Emitted by mergeUpstream when isomorphic-git's MergeNotSupportedError
+		// Emitted by mergeUpstream when the merge failure
 		// can't enumerate files — must not claim "(0 conflicting files)".
 		const { conflicts, events, orchestrator } = makeOrchestrator(
 			{

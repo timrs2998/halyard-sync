@@ -6,7 +6,7 @@
  * in this repo uses) via `VaultMirror` — no Obsidian, network disabled
  * unless a test explicitly starts a real local HTTP git server. This is what
  * proves the engine cutover for real: `GitEngine` no longer wraps
- * isomorphic-git, it wraps `Libgit2Module`/`Libgit2Repository`.
+ * the libgit2 binding, it wraps `Libgit2Module`/`Libgit2Repository`.
  *
  * Skipped (not failed) when the compiled module doesn't exist — same
  * convention every `tests/libgit2/*.test.ts` file uses.
@@ -80,7 +80,7 @@ describe.skipIf(factory === null)("GitEngine against the real compiled libgit2 m
 		// Unborn HEAD (no commit yet): libgit2's `git_repository_head` reports
 		// GIT_EUNBORNBRANCH, which `Libgit2Repository.currentBranch()` maps to
 		// null (documented, matching resolveRef's null-on-absent contract) —
-		// a real, deliberate difference from isomorphic-git's `currentBranch`,
+		// a real, deliberate behavior of `currentBranch`,
 		// which reads the symbolic HEAD target directly without needing a
 		// real commit to exist.
 		expect(await engine.currentBranch()).toBeNull();
@@ -530,7 +530,7 @@ describe.skipIf(factory === null)("GitEngine merge conflicts (real divergent his
 
 // ---------------------------------------------------------------------------
 // git-crypt determinism across sync cycles — the ORIGINAL motivating concern
-// for this whole libgit2-over-isomorphic-git effort ("avoid different git
+// for this whole libgit2-over-WASM effort ("avoid different git
 // tooling showing all files have changed"), proven one level up from where
 // it's proven everywhere else in this repo:
 //   - gitcrypt.test.ts's "encryptBlob determinism" proves the crypto itself

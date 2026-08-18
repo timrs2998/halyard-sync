@@ -33,6 +33,7 @@ import { wrapLibgit2Module, type Libgit2ModuleFactory } from "../../src/git/libg
 import { Libgit2Error, type Libgit2Repository } from "../../src/git/libgit2/binding";
 import type { RequestUrlLike } from "../../src/git/http-client";
 import { startGitHttpBackend } from "./helpers/git-http-backend";
+import { mountHostDir } from "./helpers/nodefs-mount";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
@@ -70,8 +71,7 @@ const realFetchRequestUrl: RequestUrlLike = async (param) => {
 async function freshModule(mountDir: string): Promise<any> {
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	const Module: any = await factory!();
-	Module.FS.mkdir("/repo");
-	Module.FS.mount(Module.NODEFS, { root: mountDir }, "/repo");
+	mountHostDir(Module, mountDir, "/repo");
 	return Module;
 }
 

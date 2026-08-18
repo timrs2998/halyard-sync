@@ -42,6 +42,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { decryptBlob, encryptBlob } from "../../src/git/gitcrypt";
+import { mountHostDir } from "./helpers/nodefs-mount";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
@@ -114,12 +115,11 @@ describe.skipIf(factory === null)("compiled libgit2-WASM git-crypt filter — na
 		]);
 
 		const Module = await factory!();
-		Module.FS.mkdir("/repo");
-		Module.FS.mount(Module.NODEFS, { root: dir }, "/repo");
+		mountHostDir(Module, dir, "/repo");
 
 		// Real dispatch on keyName, exactly what src/git/engine.ts's
 		// gitCryptFilterHooks() is required to do once a repo has more than
-		// one configured key (see the phase brief) — proven here at the
+		// one configured key — proven here at the
 		// native-boundary level, independent of that TS-side map.
 		Module.__gitcryptEncrypt = async (keyName: string, pt: Uint8Array) => {
 			const key = keysByName.get(keyName);
@@ -277,8 +277,7 @@ describe.skipIf(factory === null)("compiled libgit2-WASM git-crypt filter — na
 		const { aesKey, hmacKey } = randomKeyMaterial();
 
 		const Module = await factory!();
-		Module.FS.mkdir("/repo");
-		Module.FS.mount(Module.NODEFS, { root: dir }, "/repo");
+		mountHostDir(Module, dir, "/repo");
 		Module.__gitcryptEncrypt = async (_keyName: string, pt: Uint8Array) => encryptBlob(aesKey, hmacKey, pt);
 		Module.__gitcryptDecrypt = async (_keyName: string, ct: Uint8Array) => decryptBlob(aesKey, ct);
 

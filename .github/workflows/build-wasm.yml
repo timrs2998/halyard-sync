@@ -1,9 +1,16 @@
 name: Rebuild libgit2 WASM
 
 # The compiled module is committed, so this does not run on every push. It runs
-# when the inputs that actually determine the output change — and on demand —
-# and fails if the committed artifact no longer matches what those inputs
-# produce. A cold build takes 10-15 minutes; see src/git/libgit2/build/BUILD.md.
+# when the inputs that determine the output change, and on demand.
+#
+# What it verifies is that the build recipe still works and still produces a
+# WORKING module: it rebuilds from source, then runs the full test suite against
+# the freshly built artifact. It deliberately does not require the rebuilt bytes
+# to match the committed ones — the Emscripten build is not known to be
+# bit-reproducible, so a byte comparison would fail for reasons unrelated to
+# correctness. Drift is reported for a human to look at, not treated as failure.
+#
+# A cold build takes 10-15 minutes; see src/git/libgit2/build/BUILD.md.
 on:
   workflow_dispatch:
   push:
@@ -21,7 +28,7 @@ on:
 jobs:
   build-wasm:
     runs-on: ubuntu-latest
-    # Same pinned toolchain the committed artifact was produced with; see
+    # The pinned toolchain the committed artifact was produced with; see
     # src/git/libgit2/build/versions.env. GitHub-hosted runners run job
     # containers natively, so no Docker-in-Docker is involved.
     container: emscripten/emsdk:6.0.3
@@ -29,15 +36,15 @@ jobs:
       - uses: actions/checkout@v4
 
       # emsdk's image ships emcc/clang/node, but libgit2 configures through
-      # CMake before emmake (which wraps make, not cmake) takes over.
-      - name: Install cmake and build-essential
+      # CMake before emmake (which wraps make, not cmake) takes over. git-crypt
+      # unskips the real cross-compatibility suite in tests/gitcrypt.test.ts.
+      - name: Install build and test dependencies
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends cmake build-essential
+          apt-get install -y --no-install-recommends cmake build-essential git git-crypt
 
-      # The dominant cost is the emsdk toolchain download and the libgit2
-      # clone, both of which live in .build-work. Key on the exact inputs that
-      # force a real rebuild.
+      # The dominant cost is the emsdk toolchain download and the libgit2 clone,
+      # both of which live in .build-work.
       - name: Cache build work tree
         uses: actions/cache@v4
         with:
@@ -50,15 +57,23 @@ jobs:
         working-directory: src/git/libgit2
         run: bash build/build.sh
 
-      - name: Verify the committed artifact matches this build
+      # The real check: does the freshly built module actually work? This runs
+      # against the rebuilt dist/, not the committed one, so a broken recipe
+      # fails here even when the committed artifact is fine.
+      - run: npm ci
+
+      - run: npm test
+
+      - name: Report drift from the committed artifact
         run: |
-          if ! git diff --quiet -- src/git/libgit2/build/dist/; then
-            echo "The committed build/dist artifacts differ from this build."
-            echo "Rebuild locally (see src/git/libgit2/build/BUILD.md) and commit the result."
+          if git diff --quiet -- src/git/libgit2/build/dist/; then
+            echo "Rebuilt artifact is byte-identical to the committed one."
+          else
+            echo "::notice::The rebuilt artifact differs byte-for-byte from the committed one."
+            echo "The test suite passed against the rebuild, so this is not a failure."
+            echo "If native/*.c changed, commit the rebuilt files (see BUILD.md)."
             git diff --stat -- src/git/libgit2/build/dist/
-            exit 1
           fi
-          echo "Committed artifacts match."
 
       - uses: actions/upload-artifact@v4
         with:

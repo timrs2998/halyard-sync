@@ -49,6 +49,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { decryptBlob, encryptBlob } from "../../src/git/gitcrypt";
+import { mountHostDir } from "./helpers/nodefs-mount";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
@@ -106,7 +107,7 @@ describe.skipIf(factory === null)("compiled libgit2-WASM git-crypt filter (real,
 		writeFileSync(join(dir, "secret.txt"), plaintext, "utf8");
 
 		// Real AES-256/HMAC-SHA1 key material, generated with WebCrypto per the
-		// phase brief (no key-file import flow needed for this smoke test).
+		// directly (no key-file import flow needed for this smoke test).
 		const aesKey = new Uint8Array(32);
 		const hmacKey = new Uint8Array(64);
 		crypto.getRandomValues(aesKey);
@@ -114,8 +115,7 @@ describe.skipIf(factory === null)("compiled libgit2-WASM git-crypt filter (real,
 
 		const Module = await factory!();
 
-		Module.FS.mkdir("/repo");
-		Module.FS.mount(Module.NODEFS, { root: dir }, "/repo");
+		mountHostDir(Module, dir, "/repo");
 
 		// The seam documented in binding.ts's GitCryptFilterHooks / filter_shim.c's
 		// header comment: real crypto, not a stub.

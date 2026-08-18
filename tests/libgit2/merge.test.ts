@@ -31,6 +31,7 @@ import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { wrapLibgit2Module, type Libgit2ModuleFactory } from "../../src/git/libgit2/engine";
 import type { RequestUrlLike } from "../../src/git/http-client";
+import { mountHostDir } from "./helpers/nodefs-mount";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
@@ -56,8 +57,7 @@ const unusedRequestUrl: RequestUrlLike = async () => {
 async function freshModule(mountDir: string): Promise<any> {
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	const Module: any = await factory!();
-	Module.FS.mkdir("/repo");
-	Module.FS.mount(Module.NODEFS, { root: mountDir }, "/repo");
+	mountHostDir(Module, mountDir, "/repo");
 	return Module;
 }
 

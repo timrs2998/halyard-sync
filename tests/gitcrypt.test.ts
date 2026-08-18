@@ -3,7 +3,7 @@
  * cross-compatibility tests against a real `git`/`git-crypt` CLI, gated by
  * hasGitCrypt() so the suite still passes cleanly in environments (like most
  * CI) where git-crypt isn't installed. See DESIGN.md / engine.ts's
- * UnsupportedGitAttributesError for why this format matters: isomorphic-git
+ * UnsupportedGitAttributesError for why this format matters: a pure-JS engine
  * cannot run git-crypt's filter at all, so a from-scratch, spec-accurate
  * implementation is the only way to interoperate with real git-crypt repos.
  */
