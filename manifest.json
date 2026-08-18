@@ -1,7 +1,7 @@
 {
 	"id": "tether-sync",
 	"name": "Tether Sync",
-	"version": "0.1.5",
+	"version": "0.1.6",
 	"minAppVersion": "1.11.4",
 	"description": "Sync your vault with a git repository (GitHub, GitLab, Bitbucket, Gitea/Forgejo, Azure DevOps, or any HTTPS host) on desktop and mobile. No native git required.",
 	"author": "timrs2998",
