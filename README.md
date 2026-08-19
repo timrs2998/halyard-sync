@@ -3,7 +3,7 @@
 [![CI](https://github.com/timrs2998/tether-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/timrs2998/tether-sync/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/timrs2998/tether-sync?sort=semver)](https://github.com/timrs2998/tether-sync/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Obsidian](https://img.shields.io/badge/Obsidian-%3E%3D1.11.4-7c3aed)](https://obsidian.md)
+[![Obsidian](https://img.shields.io/badge/Obsidian-%3E%3D1.13.0-7c3aed)](https://obsidian.md)
 [![Mobile](https://img.shields.io/badge/mobile-iOS%20%7C%20Android-brightgreen)](#platform-support)
 [![Engine: libgit2](https://img.shields.io/badge/engine-libgit2%20(WASM)-orange)](src/git/libgit2/README.md)
 
@@ -58,7 +58,7 @@ Basic-auth convention requires for pull requests even though git sync itself doe
 | Sync engine | libgit2 → WebAssembly (bundled) | libgit2 → WebAssembly (bundled) |
 | Transport | HTTPS | HTTPS |
 | Background sync | while Obsidian is open | foreground only (OS limitation) |
-| Token storage | OS keychain (Obsidian ≥1.11) | secure storage, with fallback |
+| Token storage | OS keychain | secure storage, with fallback |
 
 ## Installation
 
@@ -158,12 +158,25 @@ paths and not others.
 
 ## Security
 
-- Tokens live in Obsidian's **SecretStorage** (OS keychain on desktop) when available
-  (Obsidian ≥1.11).
+- Tokens live in Obsidian's **SecretStorage** (OS keychain on desktop) when available.
 - Where it isn't, they fall back to `data.json` **in plain text**, and settings shows
   a warning. Use the narrowest scope you can.
 - Git traffic goes through Obsidian's native `requestUrl` — no third-party proxy, no
   CORS middleman.
+
+### What this plugin can reach
+
+- **Your vault, through Obsidian's own APIs.** Notes are read and written through
+  `Vault`/`DataAdapter`; the git repository lives in an in-memory mirror mounted into
+  the WebAssembly module (see `DESIGN.md`). The shipped bundle contains no Node
+  filesystem code — the compiled libgit2 module is linked for the web only, so there
+  is no code path to a file outside the vault, on any platform.
+- **The clipboard: writes only, one place.** The OAuth device-flow dialog's "Copy
+  code" button writes the one-time code this plugin just generated. Nothing in the
+  plugin ever *reads* the clipboard, so content you copied elsewhere is never seen.
+- **The network: your git host, and nothing else.** Every request goes to the remote
+  URL you configured (plus that provider's own token/PR endpoints). Nothing is sent
+  anywhere else — no telemetry, no analytics, no update pings.
 
 ## OAuth client IDs (for distributors)
 

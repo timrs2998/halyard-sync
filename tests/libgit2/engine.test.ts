@@ -28,28 +28,18 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createRequire } from "node:module";
-import { wrapLibgit2Module, type Libgit2ModuleFactory } from "../../src/git/libgit2/engine";
+import { wrapLibgit2Module } from "../../src/git/libgit2/engine";
 import { Libgit2Error, type Libgit2Repository } from "../../src/git/libgit2/binding";
 import type { RequestUrlLike } from "../../src/git/http-client";
 import { startGitHttpBackend } from "./helpers/git-http-backend";
 import { mountHostDir } from "./helpers/nodefs-mount";
+import type { TestNativeModule } from "./helpers/test-module";
+import { loadModuleFactory } from "./helpers/test-module";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const require = createRequire(import.meta.url);
+const MODULE_JS = join(__dirname, "..", "..", "src", "git", "libgit2", "build", "dist", "tether-libgit2.node.js");
 
-const MODULE_JS = join(__dirname, "..", "..", "src", "git", "libgit2", "build", "dist", "tether-libgit2.js");
-
-function loadFactory(): Libgit2ModuleFactory | null {
-	try {
-		const mod = require(MODULE_JS);
-		return typeof mod === "function" ? mod : mod.default;
-	} catch {
-		return null;
-	}
-}
-
-const factory = loadFactory();
+const factory = loadModuleFactory(MODULE_JS);
 
 /** A `RequestUrlLike` backed by real `fetch` — used for the fetch/listRemoteRefs
  * tests against the real local `git http-backend` server, same pattern as
@@ -67,10 +57,8 @@ const realFetchRequestUrl: RequestUrlLike = async (param) => {
 	return { status: res.status, headers, arrayBuffer };
 };
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function freshModule(mountDir: string): Promise<any> {
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	const Module: any = await factory!();
+async function freshModule(mountDir: string): Promise<TestNativeModule> {
+	const Module = await factory!();
 	mountHostDir(Module, mountDir, "/repo");
 	return Module;
 }
@@ -374,7 +362,7 @@ describe.skipIf(factory === null)("engine.ts Libgit2Module/Libgit2Repository (re
 		const htmlPageRequestUrl: RequestUrlLike = async () => ({
 			status: 200,
 			headers: { "content-type": "text/html; charset=utf-8" },
-			arrayBuffer: new TextEncoder().encode("<html><body>Sign in to continue</body></html>").buffer as ArrayBuffer,
+			arrayBuffer: new TextEncoder().encode("<html><body>Sign in to continue</body></html>").buffer,
 		});
 		const git2 = await wrapLibgit2Module(Module, { requestUrl: htmlPageRequestUrl });
 

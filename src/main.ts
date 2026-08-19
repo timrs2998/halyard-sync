@@ -11,6 +11,7 @@ import {
 	describeGitError,
 	deriveGitCryptKeyChecklist,
 	GitEngine,
+	migrateWorkspaceIgnoreLine,
 	UnsupportedGitAttributesError,
 	type ConflictFileStat,
 	type GitCryptKeyChecklistEntry,
@@ -102,6 +103,7 @@ export default class TetherSyncPlugin extends Plugin {
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
+		await this.migrateGitignoreConfigDir();
 
 		const fallback = {
 			load: async () => ({ ...this.fallbackSecrets }),
@@ -187,7 +189,7 @@ export default class TetherSyncPlugin extends Plugin {
 				this.orchestrator,
 				{
 					onSyncClick: () => this.syncNow(),
-					onConflictClick: () => this.openConflictModal(),
+					onConflictClick: () => void this.openConflictModal(),
 					onDetailClick: () => void this.activateSyncView(),
 					onSetupClick: () => this.openSetupWizard(),
 				},
@@ -249,7 +251,7 @@ export default class TetherSyncPlugin extends Plugin {
 				return;
 			}
 			const status = this.orchestrator.status;
-			if (status.state === "conflict") this.openConflictModal();
+			if (status.state === "conflict") void this.openConflictModal();
 			else this.syncNow();
 		});
 		ribbonEl.addClass("tether-sync-ribbon-icon");
@@ -425,6 +427,7 @@ export default class TetherSyncPlugin extends Plugin {
 			ignoreGlobs: this.settings.ignoreGlobs,
 			autoMergeOverlappingEdits: this.settings.autoMergeOverlappingEdits,
 			ownDataPath: this.manifest.dir ? normalizePath(`${this.manifest.dir}/data.json`) : undefined,
+			configDir: this.app.vault.configDir,
 			onAuth: async () => {
 				const token = await this.getToken();
 				if (token === null) return null;
@@ -916,9 +919,29 @@ export default class TetherSyncPlugin extends Plugin {
 	private async seedGitignore(): Promise<void> {
 		const adapter = this.app.vault.adapter;
 		if (await adapter.exists(".gitignore")) return;
-		const lines = [".obsidian/workspace*", ".trash/"];
+		const lines = [`${this.app.vault.configDir}/workspace*`, ".trash/"];
 		if (this.manifest.dir) lines.push(normalizePath(`${this.manifest.dir}/data.json`));
 		await adapter.write(".gitignore", lines.join("\n") + "\n");
+	}
+
+	/**
+	 * Earlier versions wrote the workspace ignore with a hardcoded
+	 * `.obsidian/` prefix, so a vault whose configuration folder is named
+	 * anything else has been syncing its (device-specific, constantly
+	 * churning) workspace files ever since. Rewrite that one line to point at
+	 * the real config folder.
+	 *
+	 * The rewrite itself is `migrateWorkspaceIgnoreLine` (pure, tested); this
+	 * is just the vault IO around it, and it is a no-op on every subsequent
+	 * launch.
+	 */
+	private async migrateGitignoreConfigDir(): Promise<void> {
+		const configDir = this.app.vault.configDir;
+		const adapter = this.app.vault.adapter;
+		if (!(await adapter.exists(".gitignore"))) return;
+		const migrated = migrateWorkspaceIgnoreLine(await adapter.read(".gitignore"), configDir);
+		if (migrated === null) return;
+		await adapter.write(".gitignore", migrated);
 	}
 
 	async recloneVault(onProgress?: (message: string) => void): Promise<void> {
@@ -1029,7 +1052,7 @@ export default class TetherSyncPlugin extends Plugin {
 				"isn't configured to use it yet — click here to set it up."
 			: "Tether Sync: this vault has no repository yet — click here to run the setup wizard.";
 		const notice = new Notice(message, 30_000);
-		notice.noticeEl.addEventListener("click", () => {
+		notice.messageEl.addEventListener("click", () => {
 			notice.hide();
 			this.openSetupWizard();
 		});

@@ -71,6 +71,7 @@
 import TetherLibgit2Factory from "./build/dist/tether-libgit2.js";
 import { wrapLibgit2Module } from "./engine";
 import type { Libgit2Module } from "./binding";
+import type { NativeModule } from "./native-module";
 import type { RequestUrlLike } from "../http-client";
 
 export interface LoadLibgit2ModuleOptions {
@@ -104,8 +105,7 @@ export interface LoadLibgit2ModuleOptions {
  */
 export async function instantiateLibgit2Module(
 	readWasmBytes: () => Promise<ArrayBuffer>
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-): Promise<any> {
+): Promise<NativeModule> {
 	const wasmBytes = await readWasmBytes();
 
 	let rejectInstantiate: (err: unknown) => void = () => {};

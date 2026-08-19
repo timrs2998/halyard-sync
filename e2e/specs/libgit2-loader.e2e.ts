@@ -108,7 +108,7 @@ describe("Tether Sync's libgit2 WASM engine in a real Obsidian instance", functi
 			if (typeof storage !== "object" || storage === null) return false;
 			return typeof (storage.getSecret ?? storage.get) === "function";
 		});
-		console.log(`    [info] app.secretStorage available: ${available}`);
+		console.debug(`    [info] app.secretStorage available: ${available}`);
 		expect(typeof available).toBe("boolean");
 	});
 });

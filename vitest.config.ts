@@ -13,5 +13,8 @@ export default defineConfig({
 		// build.sh runs directly in the workspace — which is exactly what CI's
 		// build-wasm job does.
 		include: ["tests/**/*.test.ts"],
+		// Supplies the `window` that plugin code schedules timers through —
+		// see the setup file's comment.
+		setupFiles: ["tests/setup/window-globals.ts"],
 	},
 });

@@ -177,7 +177,7 @@ const YIELD_EVERY = 200;
 function maybeYield(counter: { n: number }): Promise<void> {
 	counter.n += 1;
 	if (counter.n % YIELD_EVERY !== 0) return Promise.resolve();
-	return new Promise((resolve) => setTimeout(resolve, 0));
+	return new Promise((resolve) => window.setTimeout(resolve, 0));
 }
 
 function parentOf(p: string): string {
@@ -471,7 +471,7 @@ export class VaultMirror {
 			if (parent !== "" && !(await adapter.exists(parent))) {
 				await adapter.mkdir(parent);
 			}
-			await adapter.writeBinary(adapterPath, entry.data.slice().buffer as ArrayBuffer);
+			await adapter.writeBinary(adapterPath, entry.data.slice().buffer);
 			entry.dirty = false;
 			await maybeYield(yieldCounter);
 		}
@@ -575,6 +575,9 @@ export interface EmscriptenFsGlobals {
 	isDir(mode: number): boolean;
 }
 
+/** A table of filesystem callbacks FS invokes on a node — see `FsNode`. */
+export type FsOpTable = Record<string, (...args: never[]) => unknown>;
+
 /** An Emscripten `FS.FSNode` instance, structurally — real fields
  * (`mode`, `node_ops`, `stream_ops`) plus one custom field this backend
  * adds (`mirrorPath`, this mount's own bookkeeping of which `VaultMirror`
@@ -602,10 +605,15 @@ export interface FsNode {
 	 * unrelated lock attempt elsewhere in init) got a false positive from
 	 * this exact stale-cache-key bug. */
 	name: string;
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	node_ops: Record<string, any>;
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	stream_ops: Record<string, any>;
+	/** The op tables FS assigns to every node it hands back (see
+	 * `describeClassicFsBackend`). Typed loosely on purpose: FS calls these
+	 * from its own syscall traps, this backend only ever *installs* them, and
+	 * Emscripten's own backends each carry a different subset — so a precise
+	 * signature here would describe FS's internals rather than this
+	 * backend's contract. The tables this backend actually builds are fully
+	 * typed at their definition site. */
+	node_ops: FsOpTable;
+	stream_ops: FsOpTable;
 	mirrorPath?: string;
 }
 
@@ -983,8 +991,7 @@ export function describeClassicFsBackend(mirror: VaultMirror, globals: ClassicFs
 			buffer: Uint8Array,
 			offset: number,
 			length: number,
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			_mmapFlags: any
+			_mmapFlags: unknown
 		): number {
 			stream_ops.write(stream, buffer, 0, length, offset);
 			return 0;

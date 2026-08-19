@@ -68,13 +68,13 @@ describe("encryptBlob / decryptBlob round-trip", () => {
 		// self-consistency with our own encrypt/decrypt pairing.
 		const hmacKey = await crypto.subtle.importKey(
 			"raw",
-			TEST_HMAC_KEY.slice().buffer as ArrayBuffer,
+			TEST_HMAC_KEY.slice().buffer,
 			{ name: "HMAC", hash: "SHA-1" },
 			false,
 			["sign"]
 		);
 		const digest = new Uint8Array(
-			await crypto.subtle.sign("HMAC", hmacKey, plaintext.slice().buffer as ArrayBuffer)
+			await crypto.subtle.sign("HMAC", hmacKey, plaintext.slice().buffer)
 		);
 		const expectedNonce = digest.slice(0, 12);
 		const actualNonce = ciphertext.slice(10, 22);

@@ -50,6 +50,7 @@ import {
 	type ClassicFsBackendGlobals,
 	type FsNode,
 } from "./libgit2/fs-backend";
+import type { NativeModule } from "./libgit2/native-module";
 import type { DataAdapterLike } from "./fs-adapter";
 import type { RequestUrlLike } from "./http-client";
 import { decryptBlob, encryptBlob } from "./gitcrypt";
@@ -62,16 +63,50 @@ import type { GitCryptKeyMaterial } from "../auth/secrets";
 /**
  * Files that must never be synced: workspace layout churns on every app
  * launch and is device-specific; .trash is Obsidian's local recycle bin.
+ *
+ * Takes the config folder (`Vault#configDir`) rather than assuming Obsidian's
+ * default name for it: a vault whose config folder was renamed would
+ * otherwise sync its workspace files on every app launch.
  */
-export const DEFAULT_IGNORES = [".obsidian/workspace", ".trash/"];
+export function defaultIgnores(configDir: string): string[] {
+	return [`${configDir}/workspace`, ".trash/"];
+}
+
+/** The workspace-ignore line `main.ts`'s `seedGitignore` writes. */
+function workspaceIgnoreLine(configDir: string): string {
+	return `${configDir}/workspace*`;
+}
+
+/**
+ * Repoints a stale workspace-ignore line at the vault's real configuration
+ * folder. Older versions wrote this line with Obsidian's default folder name
+ * baked in, so a vault whose config folder is named anything else has been
+ * syncing its workspace files ever since. Returns null when there is nothing
+ * to do, so the caller can skip the write entirely.
+ *
+ * Matches on the line's shape (`<something>/workspace*`) rather than on the
+ * specific name older versions used, which keeps the plugin from having to
+ * carry a hardcoded config-folder name around at all. Deliberately narrow: it
+ * rewrites nothing when the file already carries the correct line — a vault
+ * also opened on a machine that does use the default name may legitimately
+ * want both — and it leaves every other line untouched.
+ */
+export function migrateWorkspaceIgnoreLine(contents: string, configDir: string): string | null {
+	const wanted = workspaceIgnoreLine(configDir);
+	const isWorkspaceIgnore = (line: string) => /^[^/\s][^/]*\/workspace\*$/.test(line.trim());
+	const lines = contents.split("\n");
+	if (lines.some((line) => line.trim() === wanted)) return null;
+	if (!lines.some((line) => isWorkspaceIgnore(line))) return null;
+	return lines.map((line) => (isWorkspaceIgnore(line) ? wanted : line)).join("\n");
+}
 
 /**
  * Glob-ish matcher, deliberately dependency-free:
  *   - "dir/"     -> that directory and everything under it
  *   - "prefix*"  -> path prefix match
  *   - "*.suffix" -> path suffix match
- *   - "plain"    -> prefix match (so ".obsidian/workspace" also covers
- *                   ".obsidian/workspace.json" / "workspace-mobile.json")
+ *   - "plain"    -> prefix match (so "<configDir>/workspace" also covers
+ *                   "<configDir>/workspace.json" / "workspace-mobile.json")
  */
 function matchPattern(pattern: string, filepath: string): boolean {
 	if (pattern.endsWith("/")) {
@@ -89,17 +124,18 @@ function matchPattern(pattern: string, filepath: string): boolean {
 }
 
 /**
- * `DEFAULT_IGNORES` plus (when supplied) the calling plugin's own `data.json`
+ * `defaultIgnores` plus (when supplied) the calling plugin's own `data.json`
  * — see `GitEngineOptions.ownDataPath`'s doc comment for why this can't just
  * be a user-editable ignore glob.
  */
-function defaultIgnoresFor(ownDataPath?: string): string[] {
-	return ownDataPath !== undefined ? [...DEFAULT_IGNORES, ownDataPath] : DEFAULT_IGNORES;
+function defaultIgnoresFor(configDir: string, ownDataPath?: string): string[] {
+	const defaults = defaultIgnores(configDir);
+	return ownDataPath !== undefined ? [...defaults, ownDataPath] : defaults;
 }
 
 export function createIgnoreFilter(
-	userGlobs: string[] = [],
-	defaults: string[] = DEFAULT_IGNORES
+	userGlobs: string[],
+	defaults: string[]
 ): (filepath: string) => boolean {
 	const patterns = [...defaults, ...userGlobs]
 		.map((p) => p.replace(/\\/g, "/").replace(/^\.?\//, "").trim())
@@ -453,13 +489,17 @@ export interface GitEngineOptions {
 	ignoreGlobs?: string[];
 	/** Vault-relative path to the calling plugin's own `data.json` (e.g.
 	 * `.obsidian/plugins/tether-sync/data.json`), always ignored in addition
-	 * to `DEFAULT_IGNORES` and `ignoreGlobs`. This can't just be folded into
-	 * `ignoreGlobs`/`DEFAULT_IGNORES`: the plugin rewrites its own data.json
+	 * to `defaultIgnores` and `ignoreGlobs`. This can't just be folded into
+	 * `ignoreGlobs`/`defaultIgnores`: the plugin rewrites its own data.json
 	 * on every sync (lastSyncAt, rolling history — see `main.ts`'s
 	 * `onSyncComplete`/`onHistoryEntry`), so without excluding it, every sync
 	 * dirties a file that the next sync then stages and commits, syncing
 	 * forever with no real vault change behind it. */
 	ownDataPath?: string;
+	/** The vault's configuration folder (`Vault#configDir`) — the workspace
+	 * files `defaultIgnores` excludes live under it, and its name is
+	 * user-configurable, so the engine has to be told rather than assume. */
+	configDir: string;
 	/** Resolves HTTPS Basic-auth credentials for a fetch, push, or
 	 * listRemoteRef call. Null proceeds without credentials. */
 	onAuth?: (url: string) => Promise<{ username: string; password: string } | null>;
@@ -543,7 +583,10 @@ export class GitEngine {
 	private ignoreFilter: (filepath: string) => boolean;
 
 	constructor(private readonly opts: GitEngineOptions) {
-		this.ignoreFilter = createIgnoreFilter(opts.ignoreGlobs ?? [], defaultIgnoresFor(opts.ownDataPath));
+		this.ignoreFilter = createIgnoreFilter(
+			opts.ignoreGlobs ?? [],
+			defaultIgnoresFor(opts.configDir, opts.ownDataPath)
+		);
 	}
 
 	/**
@@ -557,7 +600,10 @@ export class GitEngine {
 		if (patch.author !== undefined) this.opts.author = patch.author;
 		if (patch.ignoreGlobs !== undefined) {
 			this.opts.ignoreGlobs = patch.ignoreGlobs;
-			this.ignoreFilter = createIgnoreFilter(patch.ignoreGlobs, defaultIgnoresFor(this.opts.ownDataPath));
+			this.ignoreFilter = createIgnoreFilter(
+				patch.ignoreGlobs,
+				defaultIgnoresFor(this.opts.configDir, this.opts.ownDataPath)
+			);
 		}
 		if (patch.onAuth !== undefined) this.opts.onAuth = patch.onAuth;
 		if (patch.onProgress !== undefined) this.opts.onProgress = patch.onProgress;
@@ -1168,18 +1214,19 @@ export interface CreateGitEngineOptions {
 	 * Emscripten glue's import path (keeps this file testable with a mock
 	 * factory, and keeps the loader's WASM-packaging concerns fully
 	 * separate from the engine's git-operation concerns). */
-	instantiateModule: () => Promise<unknown>;
+	instantiateModule: () => Promise<NativeModule>;
 	/** Wraps the raw module into the `Libgit2Module` contract (`git_libgit2_init`
 	 * + HTTP transport registration) — normally `wrapLibgit2Module` from
 	 * `libgit2/engine.ts`, injected for the same testability reason as
 	 * `instantiateModule`. */
-	wrapModule: (rawModule: unknown, requestUrl: RequestUrlLike) => Promise<Libgit2Module>;
+	wrapModule: (rawModule: NativeModule, requestUrl: RequestUrlLike) => Promise<Libgit2Module>;
 	requestUrl: RequestUrlLike;
 	adapter: DataAdapterLike;
 	author: GitAuthor;
 	remote?: string;
 	ignoreGlobs?: string[];
 	ownDataPath?: string;
+	configDir: string;
 	onAuth?: GitEngineOptions["onAuth"];
 	onProgress?: GitEngineOptions["onProgress"];
 	getGitCryptKeys?: GitEngineOptions["getGitCryptKeys"];
@@ -1199,8 +1246,7 @@ export async function createGitEngine(options: CreateGitEngineOptions): Promise<
 	const mirror = new VaultMirror();
 	await mirror.hydrateAll(options.adapter);
 
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	const Module: any = rawModule;
+	const Module = rawModule;
 	const errnoCodes = deriveErrnoCodes(Module);
 	const globals: ClassicFsBackendGlobals = {
 		ErrnoError: Module.FS.ErrnoError,
@@ -1229,6 +1275,7 @@ export async function createGitEngine(options: CreateGitEngineOptions): Promise<
 		remote: options.remote,
 		ignoreGlobs: options.ignoreGlobs,
 		ownDataPath: options.ownDataPath,
+		configDir: options.configDir,
 		onAuth: options.onAuth,
 		onProgress: options.onProgress,
 		getGitCryptKeys: options.getGitCryptKeys,

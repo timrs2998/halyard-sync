@@ -33,8 +33,7 @@ const PROVIDER_KIND_LABELS: Record<ProviderKind, string> = {
 // silent-failure bug once had to be fixed twice).
 // ---------------------------------------------------------------------------
 
-export interface TokenSettingOptions {
-	container: HTMLElement;
+export interface TokenSettingRendererOptions {
 	app: App;
 	plugin: TetherSyncPlugin;
 	provider: ForgeProvider | null;
@@ -45,34 +44,129 @@ export interface TokenSettingOptions {
 	onError: (message: string) => void;
 }
 
+export interface TokenSettingOptions extends TokenSettingRendererOptions {
+	/** Where `renderTokenSetting` creates its rows. Callers that build their
+	 * own `Setting`s use `createTokenSettingRenderers` instead. */
+	container: HTMLElement;
+}
+
+/** One decorator per row of the token UI — see `createTokenSettingRenderers`. */
+export interface TokenSettingRenderers {
+	/** Null when the provider has no device flow, so the caller can skip the row. */
+	deviceFlow: ((setting: Setting) => void) | null;
+	patLabel: (setting: Setting) => void;
+	patInput: (setting: Setting) => void;
+	patButtons: (setting: Setting) => void;
+	/** Fires the callback if a token is already saved for the current host. */
+	checkExisting: (onHasToken: () => void) => void;
+}
+
 export interface TokenSettingHandle {
 	/** The PAT field's Setting, in case the caller wants to further decorate it (e.g. rename, add a Clear button). */
 	patSetting: Setting;
-	/** Fires the callback if a token is already saved for the current host. */
-	checkExisting(onHasToken: () => void): void;
+	/** Fires the callback if a token is already saved for the current host.
+	 * Declared as a property rather than a method so callers can destructure
+	 * it without dragging an implicit `this` along. */
+	checkExisting: (onHasToken: () => void) => void;
+}
+
+/**
+ * The token UI as one decorator per row, sharing the typed-but-unsaved token
+ * value in a closure.
+ *
+ * Two callers need the same rows but create their `Setting`s differently: the
+ * setup wizard builds them imperatively into a modal, while the settings tab
+ * declares them and lets Obsidian's declarative settings framework create each
+ * row (see `settings.ts`'s `getSettingDefinitions`). Handing out decorators
+ * instead of rendering into a container serves both without duplicating the
+ * device-flow/PAT logic.
+ */
+export function createTokenSettingRenderers(opts: TokenSettingRendererOptions): TokenSettingRenderers {
+	const { app, plugin, provider } = opts;
+	let patValue = "";
+
+	const deviceFlow =
+		provider !== null && provider.deviceFlowSupported
+			? (setting: Setting) => {
+					setting
+						.setName(`Sign in with ${provider.label}`)
+						.setDesc("Opens a one-time device code you confirm in the browser.")
+						.addButton((btn) =>
+							btn.setButtonText("Sign in").setCta().onClick(() => {
+								new DeviceCodeModal(app, provider, async (token) => {
+									try {
+										await plugin.setToken(token);
+									} catch (err) {
+										opts.onError(`Couldn't save token: ${describeGitError(err)}`);
+										return;
+									}
+									opts.onSaved();
+								}).open();
+							})
+						);
+				}
+			: null;
+
+	return {
+		deviceFlow,
+		patLabel: (setting) => {
+			setting.setName("Personal access token").setDesc(
+				provider !== null
+					? provider.patInstructions
+					: "Paste an access token with repository read/write permission."
+			);
+		},
+		patInput: (setting) => {
+			setting.addText((text) => {
+				text.inputEl.type = "password";
+				text.inputEl.addClass("tether-sync-wide-input");
+				text.setPlaceholder("Paste token…").onChange((value) => {
+					patValue = value.trim();
+				});
+			});
+		},
+		patButtons: (setting) => {
+			if (provider !== null && provider.patUrl !== undefined) {
+				const patUrl = provider.patUrl;
+				setting.addButton((btn) =>
+					btn
+						.setButtonText(`Open ${provider.label} token page`)
+						.setTooltip("Opens in your browser")
+						.onClick(() => window.open(patUrl, "_blank"))
+				);
+			}
+			setting.addButton((btn) => {
+				btn.setButtonText(opts.saveButtonText).onClick(async () => {
+					if (patValue.length === 0) {
+						opts.onError("Paste a token first.");
+						return;
+					}
+					try {
+						await plugin.setToken(patValue);
+					} catch (err) {
+						opts.onError(`Couldn't save token: ${describeGitError(err)}`);
+						return;
+					}
+					opts.onSaved();
+				});
+				// A malformed remote URL has no token-storage host to save under —
+				// don't let the UI pretend saving would work.
+				btn.setDisabled(provider === null);
+			});
+		},
+		checkExisting: (onHasToken) => {
+			void plugin.hasToken().then((has) => {
+				if (has) onHasToken();
+			});
+		},
+	};
 }
 
 export function renderTokenSetting(opts: TokenSettingOptions): TokenSettingHandle {
-	const { container, app, plugin, provider } = opts;
+	const { container } = opts;
+	const renderers = createTokenSettingRenderers(opts);
 
-	if (provider !== null && provider.deviceFlowSupported) {
-		new Setting(container)
-			.setName(`Sign in with ${provider.label}`)
-			.setDesc("Opens a one-time device code you confirm in the browser.")
-			.addButton((btn) =>
-				btn.setButtonText("Sign in").setCta().onClick(() => {
-					new DeviceCodeModal(app, provider, async (token) => {
-						try {
-							await plugin.setToken(token);
-						} catch (err) {
-							opts.onError(`Couldn't save token: ${describeGitError(err)}`);
-							return;
-						}
-						opts.onSaved();
-					}).open();
-				})
-			);
-	}
+	if (renderers.deviceFlow !== null) renderers.deviceFlow(new Setting(container));
 
 	// Three separate rows, not one: a single row carrying the text field AND
 	// up to two buttons squeezed every control into one narrow modal's worth
@@ -80,58 +174,12 @@ export function renderTokenSetting(opts: TokenSettingOptions): TokenSettingHandl
 	// row stays its own `Setting` (callers rename it, e.g. settings.ts's
 	// "(saved)" suffix) so splitting the controls out doesn't change that
 	// contract.
-	let patValue = "";
-	const patSetting = new Setting(container).setName("Personal access token").setDesc(
-		provider !== null
-			? provider.patInstructions
-			: "Paste an access token with repository read/write permission."
-	);
+	const patSetting = new Setting(container);
+	renderers.patLabel(patSetting);
+	renderers.patInput(new Setting(container));
+	renderers.patButtons(new Setting(container));
 
-	new Setting(container).addText((text) => {
-		text.inputEl.type = "password";
-		text.inputEl.addClass("tether-sync-wide-input");
-		text.setPlaceholder("Paste token…").onChange((value) => {
-			patValue = value.trim();
-		});
-	});
-
-	const patButtonsSetting = new Setting(container);
-	if (provider !== null && provider.patUrl !== undefined) {
-		const patUrl = provider.patUrl;
-		patButtonsSetting.addButton((btn) =>
-			btn
-				.setButtonText(`Open ${provider.label} token page`)
-				.setTooltip("Opens in your browser")
-				.onClick(() => window.open(patUrl, "_blank"))
-		);
-	}
-	patButtonsSetting.addButton((btn) => {
-		btn.setButtonText(opts.saveButtonText).onClick(async () => {
-			if (patValue.length === 0) {
-				opts.onError("Paste a token first.");
-				return;
-			}
-			try {
-				await plugin.setToken(patValue);
-			} catch (err) {
-				opts.onError(`Couldn't save token: ${describeGitError(err)}`);
-				return;
-			}
-			opts.onSaved();
-		});
-		// A malformed remote URL has no token-storage host to save under —
-		// don't let the UI pretend saving would work.
-		btn.setDisabled(provider === null);
-	});
-
-	return {
-		patSetting,
-		checkExisting: (onHasToken) => {
-			void plugin.hasToken().then((has) => {
-				if (has) onHasToken();
-			});
-		},
-	};
+	return { patSetting, checkExisting: renderers.checkExisting };
 }
 
 // ---------------------------------------------------------------------------
@@ -234,7 +282,7 @@ export class ConfirmModal extends Modal {
 						);
 					}
 				});
-				if (this.opts.destructive === true) btn.setWarning();
+				if (this.opts.destructive === true) btn.setDestructive();
 				else btn.setCta();
 			});
 	}
@@ -295,7 +343,7 @@ export class DeviceCodeModal extends Modal {
 			text: `Enter this code at ${this.provider.label} to authorize syncing:`,
 		});
 
-		const codeEl = this.contentEl.createEl("div", { text: start.userCode });
+		const codeEl = this.contentEl.createDiv({ text: start.userCode });
 		codeEl.addClass("tether-sync-device-code");
 
 		new Setting(this.contentEl)
@@ -433,7 +481,7 @@ export class ConflictModal extends Modal {
 			.setName("Discard local changes")
 			.setDesc("Resets the vault to the remote version. Local changes are lost.")
 			.addButton((btn) =>
-				btn.setButtonText("Discard…").setWarning().onClick(() => {
+				btn.setButtonText("Discard…").setDestructive().onClick(() => {
 					const fileSummary =
 						this.files.length > 0
 							? ` This will overwrite your local version of: ${this.files
@@ -895,9 +943,10 @@ export class SetupWizardModal extends Modal {
 		let hasContent: boolean;
 		try {
 			const listing = await this.app.vault.adapter.list("/");
+			const configDir = this.app.vault.configDir;
 			hasContent =
 				listing.files.length > 0 ||
-				listing.folders.some((f) => f !== ".obsidian" && f !== ".git" && f !== ".git.bak");
+				listing.folders.some((f) => f !== configDir && f !== ".git" && f !== ".git.bak");
 		} catch {
 			hasContent = false;
 		}

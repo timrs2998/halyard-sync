@@ -53,7 +53,7 @@ describe.skipIf(!compiledModuleExists)("libgit2/loader.ts (real, against the com
 	});
 
 	it("propagates a real instantiation failure instead of hanging (corrupt wasm bytes)", async () => {
-		const corrupt = async () => new Uint8Array([0, 1, 2, 3]).buffer as ArrayBuffer;
+		const corrupt = async () => new Uint8Array([0, 1, 2, 3]).buffer;
 		await expect(instantiateLibgit2Module(corrupt)).rejects.toThrow();
 	});
 

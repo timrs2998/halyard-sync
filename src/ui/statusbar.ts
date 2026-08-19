@@ -116,7 +116,7 @@ export function statusBarView(
 			// Exhaustiveness guard: a new SyncState variant that isn't handled
 			// above fails to compile here instead of silently rendering as idle.
 			const unhandled: never = event.state;
-			throw new Error(`statusBarView: unhandled sync state '${unhandled}'`);
+			throw new Error(`statusBarView: unhandled sync state '${String(unhandled)}'`);
 		}
 	}
 }

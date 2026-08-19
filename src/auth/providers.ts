@@ -240,7 +240,7 @@ export async function pollDeviceToken(
 	hooks: PollHooks = {}
 ): Promise<DeviceFlowResult> {
 	const sleep =
-		hooks.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+		hooks.sleep ?? ((ms: number) => new Promise<void>((r) => window.setTimeout(r, ms)));
 	const now = hooks.now ?? Date.now;
 	const deadline = now() + start.expiresIn * 1000;
 	let intervalSec = start.interval > 0 ? start.interval : 5;
@@ -254,7 +254,7 @@ export async function pollDeviceToken(
 		if (typeof token === "string" && token.length > 0) {
 			return { status: "success", token };
 		}
-		const error = typeof json["error"] === "string" ? (json["error"] as string) : "";
+		const error = typeof json["error"] === "string" ? json["error"] : "";
 		switch (error) {
 			case "authorization_pending":
 				hooks.onPoll?.("pending");

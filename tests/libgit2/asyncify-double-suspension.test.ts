@@ -33,35 +33,29 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createRequire } from "node:module";
 import { encryptBlob } from "../../src/git/gitcrypt";
 import { startGitHttpBackend } from "./helpers/git-http-backend";
 import { mountHostDir } from "./helpers/nodefs-mount";
+import type { TestNativeModule } from "./helpers/test-module";
+import type { CcallArg, CcallArgType } from "../../src/git/libgit2/native-module";
+import { loadModuleFactory } from "./helpers/test-module";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const require = createRequire(import.meta.url);
+const MODULE_JS = join(__dirname, "..", "..", "src", "git", "libgit2", "build", "dist", "tether-libgit2.node.js");
 
-const MODULE_JS = join(__dirname, "..", "..", "src", "git", "libgit2", "build", "dist", "tether-libgit2.js");
+const factory = loadModuleFactory(MODULE_JS);
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function loadFactory(): (() => Promise<any>) | null {
-	try {
-		const mod = require(MODULE_JS);
-		return typeof mod === "function" ? mod : mod.default;
-	} catch {
-		return null;
-	}
-}
-
-const factory = loadFactory();
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function ccallAsync(Module: any, name: string, returnType: string, argTypes: string[], args: unknown[]) {
+function ccallAsync(
+	Module: TestNativeModule,
+	name: string,
+	returnType: "number",
+	argTypes: CcallArgType[],
+	args: CcallArg[]
+) {
 	return Module.ccall(name, returnType, argTypes, args, { async: true });
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function lastError(Module: any): string {
+function lastError(Module: TestNativeModule): string {
 	const ptr = Module.ccall("git_error_last", "number", [], []);
 	if (!ptr) return "(no error set)";
 	const msgPtr = Module.getValue(ptr, "i32");
@@ -162,7 +156,7 @@ describe.skipIf(factory === null)("Asyncify double-suspension probe (real fetch 
 				const res = await fetch(url, {
 					method,
 					headers: contentType ? { "Content-Type": contentType } : undefined,
-					body: body.length > 0 ? (body.slice().buffer as ArrayBuffer) : undefined,
+					body: body.length > 0 ? (body.slice().buffer) : undefined,
 				});
 				const buf = new Uint8Array(await res.arrayBuffer());
 				return { status: res.status, body: buf };

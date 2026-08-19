@@ -40,8 +40,8 @@ e2e/                 WebdriverIO against real Obsidian
 |---|---|
 | `npm run dev` | esbuild watch → `main.js`, plus the `.wasm` copy |
 | `npm run build` | `tsc --noEmit`, production esbuild, `.wasm` copy. **Type errors fail here.** |
-| `npm run lint` | eslint: dead code and unused imports |
-| `npm test` | vitest, ~371 tests, against the real compiled libgit2 module |
+| `npm run lint` | eslint, mirroring the plugin portal's own review config: `eslint-plugin-obsidianmd` + typescript-eslint **type-checked**. Findings here are the ones the portal reports. |
+| `npm test` | vitest, ~380 tests, against the real compiled libgit2 module |
 | `npm run test:e2e` | Real Obsidian, desktop and emulated-mobile. Needs a build first. |
 
 All four must pass before a PR.
@@ -53,8 +53,15 @@ git-crypt locally if you touch `gitcrypt.ts` or `filter_shim.c`.
 
 ## The WASM module
 
-`src/git/libgit2/build/dist/tether-libgit2.{js,wasm}` is **compiled output, committed
-on purpose** so that running, testing and contributing need no Docker or Emscripten.
+`src/git/libgit2/build/dist/` holds **compiled output, committed on purpose** so that
+running, testing and contributing need no Docker or Emscripten. One `.wasm`, two glue
+files linked from the same objects:
+
+- `tether-libgit2.js` — shipped. Linked `-sENVIRONMENT=web,worker` with no NODEFS, so
+  the bundle carries no Node filesystem code (the portal reports any `require("fs")`
+  in `main.js` as filesystem access on the public listing).
+- `tether-libgit2.node.js` — `tests/libgit2/` only, adds NODEFS so those suites can
+  mount a real temp directory and cross-check against the `git` CLI.
 
 - **Don't hand-edit it.** Regenerate via
   [`src/git/libgit2/build/BUILD.md`](src/git/libgit2/build/BUILD.md) — Docker only.

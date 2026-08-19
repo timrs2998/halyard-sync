@@ -40,8 +40,13 @@ These are environmental facts that drive the whole design:
    way — see point 3 and `http-transport.ts`'s header comment).
 6. **Secrets:** Obsidian ≥1.11 exposes `app.secretStorage` (OS keychain on desktop).
    Use it when available; fall back to plugin `data.json` with a visible warning.
-   `minAppVersion: 1.11.4`. Git-crypt key material is stored the same way, under a
-   separate key prefix (`auth/secrets.ts`'s `GitCryptKeyStore`).
+   Git-crypt key material is stored the same way, under a separate key prefix
+   (`auth/secrets.ts`'s `GitCryptKeyStore`).
+
+   `minAppVersion` is `1.13.0`, set by the settings tab rather than by secrets:
+   the tab is declarative (`getSettingDefinitions`, `settings.ts`), which is what
+   puts its rows in Obsidian's settings search, and both that API and
+   `ButtonComponent.setDestructive` are 1.13.0+.
 7. **Bundling gotcha:** the git-crypt filter's Basic-auth header building
    (`src/git/libgit2/http-transport.ts`'s `basicAuthHeader`) needs a Buffer polyfill on
    mobile — esbuild `inject` of a `polyfill-buffer.js` that uses the global Node Buffer
@@ -477,4 +482,4 @@ here given how hard-to-reverse history-rewriting operations are.
   correctly for ambient globals; the ESLint rule can't see those and false-
   positives on them).
 - `manifest.json`: `id: tether-sync`, `isDesktopOnly: false`,
-  `minAppVersion: 1.11.4`.
+  `minAppVersion: 1.13.0` (see point 6 above for what sets that floor).

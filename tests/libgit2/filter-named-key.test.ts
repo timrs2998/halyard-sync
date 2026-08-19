@@ -40,44 +40,32 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createRequire } from "node:module";
 import { decryptBlob, encryptBlob } from "../../src/git/gitcrypt";
 import { mountHostDir } from "./helpers/nodefs-mount";
+import type { TestNativeModule } from "./helpers/test-module";
+import type { CcallArg, CcallArgType } from "../../src/git/libgit2/native-module";
+import { loadModuleFactory } from "./helpers/test-module";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const require = createRequire(import.meta.url);
-
 const DIST_DIR = join(__dirname, "..", "..", "src", "git", "libgit2", "build", "dist");
-const MODULE_JS = join(DIST_DIR, "tether-libgit2.js");
+const MODULE_JS = join(DIST_DIR, "tether-libgit2.node.js");
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function loadFactory(): (() => Promise<any>) | null {
-	try {
-		const mod = require(MODULE_JS);
-		return typeof mod === "function" ? mod : mod.default;
-	} catch {
-		return null;
-	}
-}
-
-const factory = loadFactory();
+const factory = loadModuleFactory(MODULE_JS);
 
 const GITCRYPT_MAGIC = [0x00, 0x47, 0x49, 0x54, 0x43, 0x52, 0x59, 0x50, 0x54, 0x00];
 const GIT_CHECKOUT_FORCE = 2;
 
 function ccallAsync(
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	Module: any,
+	Module: TestNativeModule,
 	name: string,
-	returnType: string,
-	argTypes: string[],
-	args: unknown[]
+	returnType: "number",
+	argTypes: CcallArgType[],
+	args: CcallArg[]
 ): Promise<number> {
 	return Module.ccall(name, returnType, argTypes, args, { async: true });
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function lastError(Module: any): string {
+function lastError(Module: TestNativeModule): string {
 	const ptr = Module.ccall("git_error_last", "number", [], []);
 	if (!ptr) return "(no error set)";
 	const msgPtr = Module.getValue(ptr, "i32");

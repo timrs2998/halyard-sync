@@ -13,6 +13,13 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # Artifact attestations: `id-token` signs the provenance statement with
+      # this run's OIDC identity, `attestations` writes it to the repo's
+      # attestation store. Together they let anyone verify a released main.js
+      # was built by this workflow, from this repository, with
+      # `gh attestation verify main.js --repo <owner>/<repo>`.
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@v4
 
@@ -37,6 +44,14 @@ jobs:
             echo "Tag '$tag' does not match manifest.json version '$manifest_version'"
             exit 1
           fi
+
+      # Runs after the build, before the release: the attestation is derived
+      # from the built bytes and does not modify them, so the reproducible
+      # build the plugin portal verifies is unaffected.
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: "main.js,styles.css,manifest.json"
 
       - name: Create release and upload assets
         env:

@@ -48,26 +48,16 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createRequire } from "node:module";
-import { wrapLibgit2Module, type Libgit2ModuleFactory } from "../../src/git/libgit2/engine";
+import { wrapLibgit2Module } from "../../src/git/libgit2/engine";
 import type { RequestUrlLike } from "../../src/git/http-client";
 import { startGitHttpBackend } from "./helpers/git-http-backend";
+import type { TestNativeModule } from "./helpers/test-module";
+import { loadModuleFactory } from "./helpers/test-module";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const require = createRequire(import.meta.url);
-
 const MODULE_JS = join(__dirname, "..", "..", "src", "git", "libgit2", "build", "dist", "tether-libgit2.js");
 
-function loadFactory(): Libgit2ModuleFactory | null {
-	try {
-		const mod = require(MODULE_JS);
-		return typeof mod === "function" ? mod : mod.default;
-	} catch {
-		return null;
-	}
-}
-
-const factory = loadFactory();
+const factory = loadModuleFactory(MODULE_JS);
 
 function git(args: string[], cwd: string): string {
 	return execFileSync("git", args, { cwd }).toString("utf8").trim();
@@ -87,10 +77,8 @@ function makeTestRequestUrl(): RequestUrlLike {
 	};
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function freshModule(): Promise<any> {
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	const Module: any = await factory!();
+async function freshModule(): Promise<TestNativeModule> {
+	const Module = await factory!();
 	return Module;
 }
 

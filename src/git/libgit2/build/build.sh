@@ -369,37 +369,89 @@ EXPORTED_FUNCTIONS='[
   "_malloc","_free"
 ]'
 
+# ---------------------------------------------------------------------------
+# Two link steps, from the same objects
+# ---------------------------------------------------------------------------
+#
+# The SHIPPED module (`tether-libgit2.js`) is linked for the web only:
+#
+#   -sENVIRONMENT=web,worker  drops Emscripten's Node.js branch from the glue.
+#                             That branch is dead inside Obsidian either way
+#                             (desktop is Electron's *renderer* process, which
+#                             the glue's own environment check excludes from
+#                             "node"; mobile has no Node at all), but it is a
+#                             literal `require("node:fs")` in the shipped
+#                             bytes, which any scanner reading the plugin —
+#                             including the Obsidian plugin portal's — reports
+#                             as "uses the Node.js fs module ... can read and
+#                             write any file on the system". Users read that on
+#                             the plugin's listing. Linking it out is the honest
+#                             fix: the capability genuinely isn't there.
+#   (no -lnodefs.js)          same reasoning. NODEFS maps a mount point onto a
+#                             real host directory via node:fs, and nothing in
+#                             the plugin mounts it — that is VaultMirror's job,
+#                             see ../fs-backend.ts.
+#
+# The TEST module (`tether-libgit2.node.js`) keeps both, because the Node-based
+# suite under `tests/libgit2/` mounts a real temp directory through NODEFS and
+# cross-checks the module's on-disk output against the real `git` CLI. It is
+# never shipped: esbuild bundles only the file `loader.ts` imports.
+COMMON_LINK_FLAGS=(
+	-O3
+	-I"$LIBGIT2_DIR/include"
+	"$HERE/../native/filter_shim.c"
+	"$HERE/../native/transport_shim.c"
+	"$HERE/../native/engine_shim.c"
+	"$STATIC_LIB"
+	-sASYNCIFY=1
+	-sASYNCIFY_STACK_SIZE=1048576
+	-sSTACK_SIZE=5242880
+	-sALLOW_MEMORY_GROWTH=1
+	-sMODULARIZE=1
+	-sEXPORT_NAME=TetherLibgit2
+	-sEXPORTED_FUNCTIONS="$EXPORTED_FUNCTIONS"
+	-sFILESYSTEM=1
+	--no-entry
+)
+
+RUNTIME_METHODS='["ccall","cwrap","UTF8ToString","stringToUTF8","stringToNewUTF8","lengthBytesUTF8","setValue","getValue","HEAPU8","HEAP32","HEAPU32","FS"]'
+RUNTIME_METHODS_NODE='["ccall","cwrap","UTF8ToString","stringToUTF8","stringToNewUTF8","lengthBytesUTF8","setValue","getValue","HEAPU8","HEAP32","HEAPU32","FS","NODEFS"]'
+
+echo
+echo "== linking shipped module (web/worker, no NODEFS) =="
 emcc \
-	-O3 \
-	-I"$LIBGIT2_DIR/include" \
-	"$HERE/../native/filter_shim.c" \
-	"$HERE/../native/transport_shim.c" \
-	"$HERE/../native/engine_shim.c" \
-	"$STATIC_LIB" \
-	-sASYNCIFY=1 \
-	-sASYNCIFY_STACK_SIZE=1048576 \
-	-sSTACK_SIZE=5242880 \
-	-sALLOW_MEMORY_GROWTH=1 \
-	-sMODULARIZE=1 \
-	-sEXPORT_NAME=TetherLibgit2 \
-	-sEXPORTED_RUNTIME_METHODS='["ccall","cwrap","UTF8ToString","stringToUTF8","stringToNewUTF8","lengthBytesUTF8","setValue","getValue","HEAPU8","HEAP32","HEAPU32","FS","NODEFS"]' \
-	-sEXPORTED_FUNCTIONS="$EXPORTED_FUNCTIONS" \
-	-sFILESYSTEM=1 \
-	-lnodefs.js \
-	--no-entry \
+	"${COMMON_LINK_FLAGS[@]}" \
+	-sENVIRONMENT=web,worker \
+	-sEXPORTED_RUNTIME_METHODS="$RUNTIME_METHODS" \
 	-o "$DIST/tether-libgit2.js"
-# -lnodefs.js: links Emscripten's NODEFS classic-FS backend (src/lib/libnodefs.js),
-# which maps a mount point directly onto a real Node.js host directory via
-# node:fs. NOT part of the production Obsidian binding design (that's
-# VaultMirror's job, see ../fs-backend.ts) — this is here so the Node-based
-# smoke test (tests/libgit2/) can mount a real temp directory and use the
-# real `git` CLI to independently verify the WASM module's on-disk output
-# (object database contents, working-tree state) without first building the
-# VaultMirror-backed custom FS glue. It only activates under
-# ENVIRONMENT=node/shell (guarded internally by libnodefs.js itself) and is
-# harmless dead weight in a browser/Obsidian-webview build; if final bundle
-# size ever matters enough to care, drop this flag and re-derive a
-# NODEFS-enabled build only for tests.
+
+# The shipped glue must not carry a Node filesystem path at all. Checked here
+# rather than trusted: this split is the whole point of the two link steps, and
+# a flag that silently stopped taking effect on an Emscripten upgrade would
+# otherwise reintroduce it unnoticed.
+if grep -qE 'require\("(node:)?fs"\)' "$DIST/tether-libgit2.js"; then
+	echo "error: shipped glue still references Node's fs module - check -sENVIRONMENT" >&2
+	exit 1
+fi
+
+echo
+echo "== linking test module (adds NODEFS, node environment) =="
+emcc \
+	"${COMMON_LINK_FLAGS[@]}" \
+	-sEXPORTED_RUNTIME_METHODS="$RUNTIME_METHODS_NODE" \
+	-lnodefs.js \
+	-o "$DIST/tether-libgit2.node.js"
+
+# Both links produce the same wasm — the module's code does not depend on which
+# JS environment its glue targets — so committing the second copy would add
+# ~1.7MB of duplicate binary to the repo for nothing. Verified rather than
+# assumed, then dropped; `tests/libgit2/helpers/test-module.ts` points the test
+# glue at the shipped wasm through Emscripten's `locateFile` hook.
+if ! cmp -s "$DIST/tether-libgit2.wasm" "$DIST/tether-libgit2.node.wasm"; then
+	echo "error: shipped and test wasm differ - the test glue needs its own copy after all" >&2
+	exit 1
+fi
+rm "$DIST/tether-libgit2.node.wasm"
 
 echo
 echo "== build complete =="

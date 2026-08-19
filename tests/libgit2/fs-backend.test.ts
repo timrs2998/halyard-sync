@@ -240,7 +240,7 @@ describe("VaultMirror <-> DataAdapterLike hydrate/flush", () => {
 
 		vi.useFakeTimers();
 		try {
-			const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
+			const setTimeoutSpy = vi.spyOn(window, "setTimeout");
 			const hydrate = mirror.hydrateAll(adapter);
 			await vi.runAllTimersAsync();
 			await hydrate;
@@ -264,7 +264,7 @@ describe("VaultMirror <-> DataAdapterLike hydrate/flush", () => {
 
 		vi.useFakeTimers();
 		try {
-			const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
+			const setTimeoutSpy = vi.spyOn(window, "setTimeout");
 			const flush = mirror.flush(adapter);
 			await vi.runAllTimersAsync();
 			await flush;

@@ -19,12 +19,26 @@
  * already report uid 0. NODEFS is a test-only convenience.
  */
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
+import type { TestNativeModule } from "./test-module";
+
+/** What NODEFS's `getattr` returns — only the ownership fields matter here. */
+interface NodefsAttr {
+	uid: number;
+	gid: number;
+}
+
+type GetattrOp = (node: unknown) => NodefsAttr;
+
+/** NODEFS's own op table, plus the marker this helper stamps on it. */
+interface PatchableNodeOps {
+	getattr?: GetattrOp;
+	[PATCHED]?: boolean;
+}
 
 const PATCHED = Symbol.for("tether.nodefs.ownership-normalized");
 
 /** Creates `mountPoint`, mounts `hostDir` there via NODEFS, normalizes ownership. */
-export function mountHostDir(Module: any, hostDir: string, mountPoint: string): void {
+export function mountHostDir(Module: TestNativeModule, hostDir: string, mountPoint: string): void {
 	Module.FS.mkdir(mountPoint);
 	Module.FS.mount(Module.NODEFS, { root: hostDir }, mountPoint);
 	normalizeNodefsOwnership(Module);
@@ -35,12 +49,13 @@ export function mountHostDir(Module: any, hostDir: string, mountPoint: string): 
  * Idempotent, and scoped to the one instance: `-sMODULARIZE=1` gives each
  * `factory()` call its own `NODEFS` object.
  */
-export function normalizeNodefsOwnership(Module: any): void {
-	const ops = Module.NODEFS?.node_ops;
-	if (!ops || ops[PATCHED]) return;
+export function normalizeNodefsOwnership(Module: TestNativeModule): void {
+	const ops = Module.NODEFS?.node_ops as PatchableNodeOps | undefined;
+	if (!ops || ops[PATCHED] === true) return;
 
 	const original = ops.getattr;
-	ops.getattr = (node: unknown) => {
+	if (!original) return;
+	ops.getattr = (node: unknown): NodefsAttr => {
 		const attr = original.call(ops, node);
 		attr.uid = 0;
 		attr.gid = 0;

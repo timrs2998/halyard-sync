@@ -18,29 +18,18 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createRequire } from "node:module";
 import { createGitEngine, GitEngine } from "../src/git/engine";
-import { wrapLibgit2Module, type Libgit2ModuleFactory } from "../src/git/libgit2/engine";
+import { wrapLibgit2Module } from "../src/git/libgit2/engine";
 import type { RequestUrlLike } from "../src/git/http-client";
 import type { GitCryptKeyMaterial } from "../src/auth/secrets";
 import { startGitHttpBackend } from "./libgit2/helpers/git-http-backend";
 import { MockAdapter } from "./helpers/mock-adapter";
+import { loadModuleFactory } from "./libgit2/helpers/test-module";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const require = createRequire(import.meta.url);
-
 const MODULE_JS = join(__dirname, "..", "src", "git", "libgit2", "build", "dist", "tether-libgit2.js");
 
-function loadFactory(): Libgit2ModuleFactory | null {
-	try {
-		const mod = require(MODULE_JS);
-		return typeof mod === "function" ? mod : mod.default;
-	} catch {
-		return null;
-	}
-}
-
-const factory = loadFactory();
+const factory = loadModuleFactory(MODULE_JS);
 
 const noRequestUrl: RequestUrlLike = async () => {
 	throw new Error("network disabled in this test");
@@ -58,6 +47,7 @@ async function makeEngine(
 		requestUrl,
 		adapter,
 		author: { name: "Test", email: "test@localhost" },
+		configDir: ".obsidian",
 		getGitCryptKeys,
 		autoMergeOverlappingEdits,
 	});
@@ -156,6 +146,7 @@ describe.skipIf(factory === null)("GitEngine against the real compiled libgit2 m
 			requestUrl: noRequestUrl,
 			adapter,
 			author: { name: "Test", email: "test@localhost" },
+			configDir: ".obsidian",
 			remote: "origin",
 		});
 		await userOwnedEngine.initFromExistingVault({ url: "git@github.com:owner/vault.git" });
@@ -175,6 +166,7 @@ describe.skipIf(factory === null)("GitEngine against the real compiled libgit2 m
 			requestUrl: noRequestUrl,
 			adapter,
 			author: { name: "Test", email: "test@localhost" },
+			configDir: ".obsidian",
 			remote: "origin",
 		});
 		expect(await stillUserOwned.getRemoteUrl()).toBe("git@github.com:owner/vault.git");

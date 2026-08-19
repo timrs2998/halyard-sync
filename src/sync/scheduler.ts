@@ -99,8 +99,8 @@ export class SyncScheduler {
 	/** Re-read options and rebuild the interval timer (call on settings change). */
 	applyOptions(): void {
 		const setIntervalFn =
-			this.deps.setIntervalFn ?? ((fn, ms) => setInterval(fn, ms) as unknown as number);
-		const clearIntervalFn = this.deps.clearIntervalFn ?? ((id) => clearInterval(id));
+			this.deps.setIntervalFn ?? ((fn, ms) => window.setInterval(fn, ms));
+		const clearIntervalFn = this.deps.clearIntervalFn ?? ((id) => window.clearInterval(id));
 		if (this.intervalId !== null) {
 			clearIntervalFn(this.intervalId);
 			this.intervalId = null;
@@ -121,7 +121,7 @@ export class SyncScheduler {
 	}
 
 	stop(): void {
-		const clearIntervalFn = this.deps.clearIntervalFn ?? ((id) => clearInterval(id));
+		const clearIntervalFn = this.deps.clearIntervalFn ?? ((id) => window.clearInterval(id));
 		if (this.intervalId !== null) {
 			clearIntervalFn(this.intervalId);
 			this.intervalId = null;
@@ -150,7 +150,7 @@ export class SyncScheduler {
 		const seconds = this.deps.getOptions().debounceEditSeconds;
 		if (seconds <= 0) return;
 		const setTimeoutFn =
-			this.deps.setTimeoutFn ?? ((fn, ms) => setTimeout(fn, ms) as unknown as number);
+			this.deps.setTimeoutFn ?? ((fn, ms) => window.setTimeout(fn, ms));
 		this.cancelDebounce();
 		this.debounceId = setTimeoutFn(() => {
 			this.debounceId = null;
@@ -173,7 +173,7 @@ export class SyncScheduler {
 
 	private cancelDebounce(): void {
 		if (this.debounceId === null) return;
-		const clearTimeoutFn = this.deps.clearTimeoutFn ?? ((id) => clearTimeout(id));
+		const clearTimeoutFn = this.deps.clearTimeoutFn ?? ((id) => window.clearTimeout(id));
 		clearTimeoutFn(this.debounceId);
 		this.debounceId = null;
 	}

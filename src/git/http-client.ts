@@ -60,7 +60,7 @@ export function withRequestTimeout(
 		const timeoutMs = getTimeoutMs();
 		if (timeoutMs <= 0) return Promise.resolve(requestUrlFn(param));
 		return new Promise<RequestUrlLikeResponse>((resolve, reject) => {
-			const timer = setTimeout(() => {
+			const timer = window.setTimeout(() => {
 				reject(
 					new Error(
 						`Request to ${param.url} timed out after ${timeoutMs}ms — this often means ` +
@@ -72,12 +72,15 @@ export function withRequestTimeout(
 			}, timeoutMs);
 			Promise.resolve(requestUrlFn(param)).then(
 				(res) => {
-					clearTimeout(timer);
+					window.clearTimeout(timer);
 					resolve(res);
 				},
 				(err: unknown) => {
-					clearTimeout(timer);
-					reject(err);
+					window.clearTimeout(timer);
+					// requestUrl rejects with whatever the platform layer threw,
+					// which is not guaranteed to be an Error — normalize so
+					// callers can always read `.message`.
+					reject(err instanceof Error ? err : new Error(String(err)));
 				}
 			);
 		});

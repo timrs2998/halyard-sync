@@ -7,7 +7,7 @@ import type {
 } from "../src/git/http-client";
 
 function jsonBody(value: unknown): ArrayBuffer {
-	return new TextEncoder().encode(JSON.stringify(value)).buffer as ArrayBuffer;
+	return new TextEncoder().encode(JSON.stringify(value)).buffer;
 }
 
 /** Scripted requestUrl mock: pops one response per call, records requests. */

@@ -1,9 +1,24 @@
 # Building the libgit2-WASM module
 
-Compiles libgit2 plus this directory's native shims to a single Emscripten
-module: `build/dist/tether-libgit2.js` and `build/dist/tether-libgit2.wasm`.
+Compiles libgit2 plus this directory's native shims to Emscripten output:
+`build/dist/tether-libgit2.wasm`, plus two JS glue files linked from the same
+objects that share it.
 
-**Both outputs are committed to the repo.** You only need to run this build if
+| File | Linked for | Used by |
+|---|---|---|
+| `tether-libgit2.js` | `-sENVIRONMENT=web,worker`, no NODEFS | the plugin — this is what ships inside `main.js` |
+| `tether-libgit2.node.js` | default environments, `-lnodefs.js` | `tests/libgit2/` only, never shipped |
+
+The split exists so the shipped bytes contain no Node filesystem path at all:
+Emscripten's Node branch is dead inside Obsidian either way, but a
+`require("node:fs")` in `main.js` is reported on the plugin's public listing as
+"uses the Node.js fs module … can read and write any file on the system". The
+tests keep NODEFS because they mount a real temp directory and cross-check the
+module's on-disk output with the real `git` CLI. `build.sh` fails the build if
+the shipped glue ever regains an `fs` reference, and drops the test build's
+byte-identical copy of the wasm rather than committing it twice.
+
+**All committed outputs are in the repo.** You only need to run this build if
 you change `native/*.c`, `build/build.sh`, or `build/versions.env`. Everything
 else — running the plugin, running the test suite, contributing — works from
 the committed artifacts and needs no Docker or Emscripten.
@@ -59,8 +74,11 @@ inefficiency".
    `libgit2package` — `git2` is `LIBGIT2_FILENAME`'s default output filename,
    not a target, and `emmake make git2` fails.
 5. Compiles `native/filter_shim.c`, `native/transport_shim.c` and
-   `native/engine_shim.c`, and links them against static libgit2 into one
-   module (`emcc -sMODULARIZE=1`).
+   `native/engine_shim.c`, and links them against static libgit2 twice
+   (`emcc -sMODULARIZE=1`): once for the web (shipped) and once with NODEFS
+   (tests). See "Two link steps" in `build.sh` for what differs and why.
+6. Verifies the shipped glue carries no `require("fs")`, checks the two wasm
+   outputs are identical, and deletes the duplicate.
 
 ## Windows and Docker Desktop gotchas
 
@@ -75,7 +93,7 @@ Recorded because each one silently wastes a build cycle.
    and libgit2 clones plus the build tree (~1.5GB, mostly small files), and a
    host bind mount crawls across Docker Desktop's Windows file-sharing layer.
    A named volume is dramatically faster. A bind mount is fine for `dist` —
-   two small files, written once.
+   a handful of files, written once.
 3. **`.dockerignore` must exclude `build/.build-work` and `build/dist`.**
    Otherwise a populated `.build-work` enters the build context and either
    bloats the build absurdly or fails outright with BuildKit's

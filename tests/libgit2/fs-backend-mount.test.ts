@@ -21,8 +21,7 @@
 import { describe, expect, it } from "vitest";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createRequire } from "node:module";
-import { wrapLibgit2Module, type Libgit2ModuleFactory } from "../../src/git/libgit2/engine";
+import { wrapLibgit2Module } from "../../src/git/libgit2/engine";
 import {
 	VaultMirror,
 	deriveErrnoCodes,
@@ -32,22 +31,12 @@ import {
 } from "../../src/git/libgit2/fs-backend";
 import type { RequestUrlLike } from "../../src/git/http-client";
 import { MockAdapter } from "../helpers/mock-adapter";
+import { loadModuleFactory } from "./helpers/test-module";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const require = createRequire(import.meta.url);
-
 const MODULE_JS = join(__dirname, "..", "..", "src", "git", "libgit2", "build", "dist", "tether-libgit2.js");
 
-function loadFactory(): Libgit2ModuleFactory | null {
-	try {
-		const mod = require(MODULE_JS);
-		return typeof mod === "function" ? mod : mod.default;
-	} catch {
-		return null;
-	}
-}
-
-const factory = loadFactory();
+const factory = loadModuleFactory(MODULE_JS);
 
 const neverRequestUrl: RequestUrlLike = async () => {
 	throw new Error("fs-backend-mount.test.ts performs no network operations");
@@ -57,8 +46,7 @@ const AUTHOR = { name: "Test", email: "test@example.com" };
 
 describe.skipIf(factory === null)("VaultMirror mounted into the real compiled module (not NODEFS)", () => {
 	it("init -> write -> stage -> commit -> modify -> force-checkout -> flush, entirely through the VaultMirror mount", async () => {
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		const Module: any = await factory!();
+			const Module = await factory!();
 
 		const mirror = new VaultMirror();
 		const errnoCodes = deriveErrnoCodes(Module);
@@ -119,8 +107,7 @@ describe.skipIf(factory === null)("VaultMirror mounted into the real compiled mo
 	}, 30_000);
 
 	it("directories, renames, and deletions round-trip through the mount", async () => {
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		const Module: any = await factory!();
+			const Module = await factory!();
 		const mirror = new VaultMirror();
 		const errnoCodes = deriveErrnoCodes(Module);
 		const backend = describeClassicFsBackend(mirror, {

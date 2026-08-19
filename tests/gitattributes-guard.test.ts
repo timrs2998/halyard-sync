@@ -17,7 +17,6 @@
 import { describe, expect, it } from "vitest";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createRequire } from "node:module";
 import {
 	createGitEngine,
 	describeGitCryptLocked,
@@ -26,25 +25,16 @@ import {
 	parseFilterAttributes,
 	UnsupportedGitAttributesError,
 } from "../src/git/engine";
-import { wrapLibgit2Module, type Libgit2ModuleFactory } from "../src/git/libgit2/engine";
+import { wrapLibgit2Module } from "../src/git/libgit2/engine";
 import type { RequestUrlLike } from "../src/git/http-client";
 import type { GitCryptKeyMaterial } from "../src/auth/secrets";
 import { MockAdapter } from "./helpers/mock-adapter";
+import { loadModuleFactory } from "./libgit2/helpers/test-module";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const require = createRequire(import.meta.url);
 const MODULE_JS = join(__dirname, "..", "src", "git", "libgit2", "build", "dist", "tether-libgit2.js");
 
-function loadFactory(): Libgit2ModuleFactory | null {
-	try {
-		const mod = require(MODULE_JS);
-		return typeof mod === "function" ? mod : mod.default;
-	} catch {
-		return null;
-	}
-}
-
-const factory = loadFactory();
+const factory = loadModuleFactory(MODULE_JS);
 
 const noRequestUrl: RequestUrlLike = async () => {
 	throw new Error("network disabled in this test");
@@ -83,6 +73,7 @@ async function makeEngine(
 		requestUrl: noRequestUrl,
 		adapter,
 		author: { name: "Test", email: "test@localhost" },
+		configDir: ".obsidian",
 		getGitCryptKeys,
 	});
 	return { adapter, engine };

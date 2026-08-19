@@ -102,6 +102,12 @@ import {
 	validateSmartHttpResponse,
 } from "./http-transport";
 import type { RequestUrlLike } from "../http-client";
+import type {
+	CcallArg,
+	CcallArgType,
+	NativeModule,
+	NativeModuleFactory,
+} from "./native-module";
 
 // ---------------------------------------------------------------------------
 // libgit2 return-code / enum constants actually branched on below (values
@@ -159,17 +165,47 @@ const OID_SIZE = 20;
 // Low-level memory / marshaling helpers
 // ---------------------------------------------------------------------------
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type NativeModule = any;
-
+/**
+ * Every `ccall` here goes through Asyncify (see this file's header comment),
+ * so the return is always a promise. Overloaded per return type rather than
+ * typed once as `unknown`: the ~70 call sites below all read the result
+ * immediately as a libgit2 return code, and threading a cast through each of
+ * them would lose exactly the checking this indirection exists to provide.
+ */
 function ccallAsync(
 	Module: NativeModule,
 	name: string,
-	returnType: string | null,
-	argTypes: string[],
-	args: unknown[]
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-): Promise<any> {
+	returnType: "number",
+	argTypes: CcallArgType[],
+	args: CcallArg[]
+): Promise<number>;
+function ccallAsync(
+	Module: NativeModule,
+	name: string,
+	returnType: "string",
+	argTypes: CcallArgType[],
+	args: CcallArg[]
+): Promise<string>;
+function ccallAsync(
+	Module: NativeModule,
+	name: string,
+	returnType: null,
+	argTypes: CcallArgType[],
+	args: CcallArg[]
+): Promise<void>;
+function ccallAsync(
+	Module: NativeModule,
+	name: string,
+	returnType: "number" | "string" | null,
+	argTypes: CcallArgType[],
+	args: CcallArg[]
+): Promise<number | string | void> {
+	if (returnType === "number") {
+		return Module.ccall(name, returnType, argTypes, args, { async: true });
+	}
+	if (returnType === "string") {
+		return Module.ccall(name, returnType, argTypes, args, { async: true });
+	}
 	return Module.ccall(name, returnType, argTypes, args, { async: true });
 }
 
@@ -211,7 +247,7 @@ function hexToBytes(hex: string): Uint8Array {
 		throw new Error(`Libgit2 binding: expected a 40-char hex oid, got '${hex}'`);
 	}
 	const out = new Uint8Array(OID_SIZE);
-	for (let i = 0; i < OID_SIZE; i++) out[i] = parseInt(hex.substr(i * 2, 2), 16);
+	for (let i = 0; i < OID_SIZE; i++) out[i] = parseInt(hex.substring(i * 2, i * 2 + 2), 16);
 	return out;
 }
 
@@ -451,9 +487,9 @@ async function installHttpDispatch(
 		try {
 			const res = await requestUrlFn({
 				url: dispatchUrl,
-				method: method as "GET" | "POST",
+				method,
 				headers,
-				body: body.byteLength > 0 ? (body.slice().buffer as ArrayBuffer) : undefined,
+				body: body.byteLength > 0 ? body.slice().buffer : undefined,
 				throw: false,
 			});
 			// Catches the "wrong URL / auth redirect to an HTML login page /
@@ -1661,8 +1697,9 @@ class Libgit2ModuleImpl implements Libgit2Module {
 // ---------------------------------------------------------------------------
 
 /** The compiled module's factory function shape (Emscripten's
- * `-sMODULARIZE=1 -sEXPORT_NAME=TetherLibgit2` output — see build/BUILD.md). */
-export type Libgit2ModuleFactory = (moduleOverrides?: Record<string, unknown>) => Promise<unknown>;
+ * `-sMODULARIZE=1 -sEXPORT_NAME=TetherLibgit2` output — see build/BUILD.md).
+ * Its module surface is declared in `native-module.ts`. */
+export type Libgit2ModuleFactory = NativeModuleFactory;
 
 export interface Libgit2EngineOptions {
 	/** The real `requestUrl`-shaped function every network operation is
@@ -1683,10 +1720,9 @@ export interface Libgit2EngineOptions {
  * transport, same as `createLibgit2Module`.
  */
 export async function wrapLibgit2Module(
-	Module: unknown,
+	m: NativeModule,
 	options: Libgit2EngineOptions
 ): Promise<Libgit2Module> {
-	const m = Module as NativeModule;
 	let rc = await ccallAsync(m, "git_libgit2_init", "number", [], []);
 	if (rc < 0) throwIfError(m, rc, "git_libgit2_init");
 	rc = await ccallAsync(m, "tether_register_http_transport", "number", [], []);

@@ -149,7 +149,7 @@ async function deriveNonce(hmacKey: Uint8Array, plaintext: Uint8Array): Promise<
  * not a security or correctness concern, just a type-level normalization.
  */
 function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
-	return bytes.slice().buffer as ArrayBuffer;
+	return bytes.slice().buffer;
 }
 
 /**

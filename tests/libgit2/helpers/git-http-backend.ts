@@ -112,10 +112,10 @@ function handleCgiRequest(
 		const child = spawn("git", ["http-backend"], { env, stdio: ["pipe", "pipe", "pipe"] });
 
 		const stderrChunks: Buffer[] = [];
-		child.stderr.on("data", (c) => stderrChunks.push(c));
+		child.stderr.on("data", (c: Buffer) => stderrChunks.push(c));
 
 		const outChunks: Buffer[] = [];
-		child.stdout.on("data", (c) => outChunks.push(c));
+		child.stdout.on("data", (c: Buffer) => outChunks.push(c));
 
 		child.on("error", reject);
 		child.on("close", (code) => {
@@ -131,7 +131,7 @@ function handleCgiRequest(
 				writeCgiResponse(res, Buffer.concat(outChunks));
 				resolve();
 			} catch (err) {
-				reject(err as Error);
+				reject(err instanceof Error ? err : new Error(String(err)));
 			}
 		});
 

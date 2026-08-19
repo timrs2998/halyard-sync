@@ -61,7 +61,7 @@ export class MockAdapter implements DataAdapterLike {
 	async readBinary(path: string): Promise<ArrayBuffer> {
 		const data = this.files.get(path);
 		if (data === undefined) throw new Error(`File does not exist: ${path}`);
-		return data.slice().buffer as ArrayBuffer;
+		return data.slice().buffer;
 	}
 
 	async write(path: string, data: string): Promise<void> {

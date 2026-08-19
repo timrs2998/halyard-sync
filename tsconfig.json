@@ -20,5 +20,5 @@
 		"inlineSourceMap": true,
 		"inlineSources": true
 	},
-	"include": ["src/**/*.ts", "tests/**/*.ts", "e2e/**/*.ts", "wdio.conf.mts"]
+	"include": ["src/**/*.ts", "tests/**/*.ts", "e2e/**/*.ts", "wdio.conf.mts", "vitest.config.ts"]
 }
