@@ -96,4 +96,5 @@ jobs:
           name: tether-libgit2
           path: |
             src/git/libgit2/build/dist/tether-libgit2.js
+            src/git/libgit2/build/dist/tether-libgit2.node.js
             src/git/libgit2/build/dist/tether-libgit2.wasm
