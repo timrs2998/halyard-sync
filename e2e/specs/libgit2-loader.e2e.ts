@@ -10,7 +10,10 @@
  *
  * So the first test below asserts the sibling file is ABSENT and the engine
  * builds regardless. That combination is the regression guard: it fails if
- * anyone reverts to shipping the binary beside `main.js`.
+ * anyone reverts to shipping the binary beside `main.js`. Its other half —
+ * that `main.js` really does carry the embedded binary — is a check against
+ * files on disk rather than against a running Obsidian, and lives in
+ * `tests/packaging.test.ts`.
  *
  * Deliberately offline — it stops at "the engine is built and functional",
  * which is where the WASM risk lives. Network behaviour is covered by
@@ -19,7 +22,6 @@
 
 import { browser, expect } from "@wdio/globals";
 import { describe, it } from "mocha";
-import { statSync } from "node:fs";
 
 const WASM = "tether-libgit2.wasm";
 
@@ -110,15 +112,5 @@ describe("Tether Sync's libgit2 WASM engine in a real Obsidian instance", functi
 		});
 		console.debug(`    [info] app.secretStorage available: ${available}`);
 		expect(typeof available).toBe("boolean");
-	});
-});
-
-describe("plugin packaging", function () {
-	it("embeds the wasm binary in main.js rather than shipping it alongside", function () {
-		// The base64 embed makes main.js roughly the binary's size plus a third.
-		// A main.js smaller than the binary means the embed was dropped and
-		// installs would regress to ENOENT.
-		const wasmBytes = statSync(`src/git/libgit2/build/dist/${WASM}`).size;
-		expect(statSync("main.js").size).toBeGreaterThan(wasmBytes);
 	});
 });

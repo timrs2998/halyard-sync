@@ -964,7 +964,7 @@ export default class TetherSyncPlugin extends Plugin {
 			await this.discardEngine();
 			try {
 				await this.cloneRemoteLocked(onProgress);
-			} catch (err) {
+			} catch {
 				await this.discardEngine();
 				if (hadGit) {
 					try {
