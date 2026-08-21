@@ -1,6 +1,6 @@
 {
 	"name": "tether-sync",
-	"version": "0.1.7",
+	"version": "0.1.8",
 	"description": "Sync an Obsidian vault with a git repository over HTTPS on desktop and mobile.",
 	"main": "main.js",
 	"scripts": {
