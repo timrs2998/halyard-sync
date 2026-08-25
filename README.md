@@ -215,7 +215,7 @@ npm test         # vitest: pure logic + real tests against the compiled libgit2
 npm run test:e2e # real Obsidian, driven headlessly via WebdriverIO
 ```
 
-Both `dev` and `build` copy `src/git/libgit2/build/dist/tether-libgit2.wasm` next to
+Both `dev` and `build` copy `src/git/libgit2/build/dist/halyard-libgit2.wasm` next to
 `main.js` — **that file must ship alongside `main.js`, `manifest.json` and
 `styles.css`**. The loader reads it via `app.vault.adapter.readBinary` against a path
 derived from the plugin's own `manifest.dir`; see `src/git/libgit2/loader.ts`.

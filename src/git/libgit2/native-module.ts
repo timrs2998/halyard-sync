@@ -119,7 +119,7 @@ export interface NativeModule {
 }
 
 /**
- * The factory `-sMODULARIZE=1 -sEXPORT_NAME=TetherLibgit2` produces. The
+ * The factory `-sMODULARIZE=1 -sEXPORT_NAME=HalyardLibgit2` produces. The
  * `instantiateWasm` override is how `loader.ts` feeds in bytes it read itself
  * rather than letting the glue fetch a sibling `.wasm` file.
  */

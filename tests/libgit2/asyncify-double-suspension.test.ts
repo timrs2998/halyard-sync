@@ -9,7 +9,7 @@
  * hit Asyncify's documented "cannot start an async operation while another
  * is already running" hazard?
  *
- * `native/transport_shim.c`'s `tether_test_clone_and_checkout()` is written
+ * `native/transport_shim.c`'s `halyard_test_clone_and_checkout()` is written
  * specifically to exercise this: ONE C function, one top-level `ccall` from
  * this test, that internally does `git_remote_fetch` (transport Asyncify)
  * immediately followed by `git_checkout_tree` (filter Asyncify) with no
@@ -41,7 +41,7 @@ import type { CcallArg, CcallArgType } from "../../src/git/libgit2/native-module
 import { loadModuleFactory } from "./helpers/test-module";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const MODULE_JS = join(__dirname, "..", "..", "src", "git", "libgit2", "build", "dist", "tether-libgit2.node.js");
+const MODULE_JS = join(__dirname, "..", "..", "src", "git", "libgit2", "build", "dist", "halyard-libgit2.node.js");
 
 const factory = loadModuleFactory(MODULE_JS);
 
@@ -123,7 +123,7 @@ async function buildServerRepo(
 }
 
 describe.skipIf(factory === null)("Asyncify double-suspension probe (real fetch + real smudge, one call)", () => {
-	it("tether_test_clone_and_checkout: fetch (transport Asyncify) then checkout-smudge (filter Asyncify) in ONE top-level call", async () => {
+	it("halyard_test_clone_and_checkout: fetch (transport Asyncify) then checkout-smudge (filter Asyncify) in ONE top-level call", async () => {
 		const serverRoot = mkdtempSync(join(tmpdir(), "halyard-http-server-"));
 		const plaintext = "fetched-over-real-http-then-decrypted-by-the-real-filter\n";
 
@@ -163,22 +163,22 @@ describe.skipIf(factory === null)("Asyncify double-suspension probe (real fetch 
 			};
 
 			expect(await ccallAsync(Module, "git_libgit2_init", "number", [], [])).toBeGreaterThanOrEqual(0);
-			expect(await ccallAsync(Module, "tether_register_gitcrypt_filter", "number", [], [])).toBe(0);
-			expect(await ccallAsync(Module, "tether_register_http_transport", "number", [], [])).toBe(0);
+			expect(await ccallAsync(Module, "halyard_register_gitcrypt_filter", "number", [], [])).toBe(0);
+			expect(await ccallAsync(Module, "halyard_register_http_transport", "number", [], [])).toBe(0);
 
 			const oidHexPtr = Module._malloc(41);
 
 			// *** THE PROBE: one top-level call, both Asyncify paths inside. ***
 			const rc = await ccallAsync(
 				Module,
-				"tether_test_clone_and_checkout",
+				"halyard_test_clone_and_checkout",
 				"number",
 				["string", "string", "number"],
 				[server.url, "/dest", oidHexPtr]
 			);
 
 			if (rc !== 0) {
-				console.error("tether_test_clone_and_checkout failed, rc =", rc, lastError(Module));
+				console.error("halyard_test_clone_and_checkout failed, rc =", rc, lastError(Module));
 			}
 			expect(rc).toBe(0);
 

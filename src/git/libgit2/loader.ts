@@ -8,7 +8,7 @@
  * ---------------------------------------------------------------------------
  *
  * esbuild bundles this plugin into a single `main.js`. The compiled
- * Emscripten glue (`build/dist/tether-libgit2.js`) is plain JS with no
+ * Emscripten glue (`build/dist/halyard-libgit2.js`) is plain JS with no
  * special loading needs, so it is imported statically below and esbuild
  * inlines it directly into `main.js` like any other module. The `.wasm`
  * binary needs a real decision, and the options were:
@@ -68,7 +68,7 @@
  * `.wasm` on disk at all.
  */
 
-import TetherLibgit2Factory from "./build/dist/tether-libgit2.js";
+import HalyardLibgit2Factory from "./build/dist/halyard-libgit2.js";
 import { wrapLibgit2Module } from "./engine";
 import type { Libgit2Module } from "./binding";
 import type { NativeModule } from "./native-module";
@@ -113,7 +113,7 @@ export async function instantiateLibgit2Module(
 		rejectInstantiate = reject;
 	});
 
-	const modulePromise = TetherLibgit2Factory({
+	const modulePromise = HalyardLibgit2Factory({
 		instantiateWasm(
 			imports: WebAssembly.Imports,
 			callback: (instance: WebAssembly.Instance, module?: WebAssembly.Module) => void

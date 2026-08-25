@@ -5,8 +5,8 @@ components whose notices are reproduced below.
 
 ## libgit2
 
-The compiled artifacts `src/git/libgit2/build/dist/tether-libgit2.wasm` and
-`tether-libgit2.js` statically link [libgit2](https://github.com/libgit2/libgit2)
+The compiled artifacts `src/git/libgit2/build/dist/halyard-libgit2.wasm` and
+`halyard-libgit2.js` statically link [libgit2](https://github.com/libgit2/libgit2)
 v1.9.6, along with its bundled `zlib`, `pcre2`, `xdiff` and `llhttp`
 dependencies.
 

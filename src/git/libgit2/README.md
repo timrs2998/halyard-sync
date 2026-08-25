@@ -9,21 +9,25 @@ See the top-level [DESIGN.md](../../../DESIGN.md) for the constraints the
 plugin as a whole operates under, and [build/BUILD.md](build/BUILD.md) for how
 to regenerate the compiled module.
 
-## The `tether_*` names here are deliberate
+## The ABI names and the committed artifact move together
 
-The plugin was renamed from "Tether Sync" to "Halyard Sync", but this directory
-keeps the old brand in three places, on purpose:
+Three things must agree, or the module loads and then fails at the first call:
 
-- the C ABI symbols (`tether_status_collect`, `tether_remote_fetch`, …) in
-  `native/*.c`, their export list in `build/build.sh`, and every `ccall` that
-  names one from `engine.ts`;
-- the artifact filenames `build/dist/tether-libgit2.{js,node.js,wasm,d.ts}`;
-- the Emscripten `-sEXPORT_NAME=TetherLibgit2` factory name.
+- the C ABI symbols (`halyard_status_collect`, `halyard_remote_fetch`, …)
+  defined in `native/*.c`, listed in `build/build.sh`'s `EXPORTED_FUNCTIONS`,
+  and named as strings by every `ccall` in `engine.ts`;
+- the artifact filenames `build/dist/halyard-libgit2.{js,node.js,wasm,d.ts}`;
+- the Emscripten `-sEXPORT_NAME=HalyardLibgit2` factory name.
 
-These are the exports of the **committed** `.wasm` binary. Renaming them in
-source without re-running `build/build.sh` makes every `ccall` miss and the
-module fail to load, so they can only change in the same commit that rebuilds
-and re-commits the artifact. None of them is user-visible.
+The committed `.wasm` is what actually exports those symbols, and nothing in
+the TypeScript build checks the strings against it — `ccall` resolves by name
+at runtime. So renaming any of them is only half a change until `build.sh` has
+re-run and the rebuilt `dist/` is committed alongside it, in the same commit.
+
+This is not theoretical: these names were `tether_*` until the plugin was
+renamed, and they had to stay that way for exactly one commit — the rename
+shipped first, and the ABI followed only when there was a rebuilt artifact to
+go with it.
 
 ## Files
 
@@ -48,7 +52,7 @@ and re-commits the artifact. None of them is user-visible.
 `build/BUILD.md`, this README, and every file under `tests/libgit2/`.
 
 **Compiled output, regenerable, never hand-edited:**
-`build/dist/tether-libgit2.js` and `build/dist/tether-libgit2.wasm`. They are
+`build/dist/halyard-libgit2.js` and `build/dist/halyard-libgit2.wasm`. They are
 committed so that running the plugin, running the tests, or contributing needs
 no Docker or Emscripten. Regenerate them via `build/BUILD.md` whenever
 `native/*.c` or the build flags change.

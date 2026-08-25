@@ -18,11 +18,11 @@ const prod = process.argv[2] === "production";
 // global `Buffer` references (using the real Electron Buffer on desktop).
 const externalBuiltins = builtinModules.filter((m) => m !== "buffer");
 
-// The shipped glue (`build/dist/tether-libgit2.js`) is linked with
+// The shipped glue (`build/dist/halyard-libgit2.js`) is linked with
 // `-sENVIRONMENT=web,worker`, so Emscripten's Node-only code — its `node:fs`
 // reader and the `ws` WebSocket transport it uses for SOCKFS — is not in the
 // artifact at all, and neither needs an `external` entry here. The
-// NODEFS-enabled `tether-libgit2.node.js` beside it still contains both, but
+// NODEFS-enabled `halyard-libgit2.node.js` beside it still contains both, but
 // that build exists only for `tests/libgit2/` and is never imported by
 // `src/`, so esbuild never sees it. See build/build.sh's "Two link steps".
 

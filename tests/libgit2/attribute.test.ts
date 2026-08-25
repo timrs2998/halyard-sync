@@ -1,7 +1,7 @@
 /**
  * Real, end-to-end tests for `Libgit2Repository.listPathsWithAttribute()` in
  * `src/git/libgit2/engine.ts`, run against the real compiled
- * `build/dist/tether-libgit2.{js,wasm}` module — same artifact/mount pattern
+ * `build/dist/halyard-libgit2.{js,wasm}` module — same artifact/mount pattern
  * as `tests/libgit2/engine.test.ts` and `tests/libgit2/merge.test.ts`.
  * Skipped (not failed) when the compiled module doesn't exist.
  *
@@ -22,7 +22,7 @@ import type { TestNativeModule } from "./helpers/test-module";
 import { loadModuleFactory } from "./helpers/test-module";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const MODULE_JS = join(__dirname, "..", "..", "src", "git", "libgit2", "build", "dist", "tether-libgit2.node.js");
+const MODULE_JS = join(__dirname, "..", "..", "src", "git", "libgit2", "build", "dist", "halyard-libgit2.node.js");
 
 const factory = loadModuleFactory(MODULE_JS);
 

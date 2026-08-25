@@ -1,7 +1,7 @@
 /**
  * Real, end-to-end tests for `src/git/libgit2/engine.ts` — the actual
  * `Libgit2Module`/`Libgit2Repository` implementation, run against the real
- * compiled `build/dist/tether-libgit2.{js,wasm}` module (same artifact
+ * compiled `build/dist/halyard-libgit2.{js,wasm}` module (same artifact
  * `tests/libgit2/filter-smoke.test.ts` and
  * `tests/libgit2/asyncify-double-suspension.test.ts` already prove works).
  *
@@ -37,7 +37,7 @@ import type { TestNativeModule } from "./helpers/test-module";
 import { loadModuleFactory } from "./helpers/test-module";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const MODULE_JS = join(__dirname, "..", "..", "src", "git", "libgit2", "build", "dist", "tether-libgit2.node.js");
+const MODULE_JS = join(__dirname, "..", "..", "src", "git", "libgit2", "build", "dist", "halyard-libgit2.node.js");
 
 const factory = loadModuleFactory(MODULE_JS);
 
@@ -312,7 +312,7 @@ describe.skipIf(factory === null)("engine.ts Libgit2Module/Libgit2Repository (re
 
 	it("fetch() surfaces a rejected requestUrl as a real error instead of hanging forever", async () => {
 		// The actual bug this proves fixed: native/transport_shim.c's
-		// tether_http_dispatch_js (an EM_ASYNC_JS block) awaits
+		// halyard_http_dispatch_js (an EM_ASYNC_JS block) awaits
 		// Module.__httpDispatch with no try/catch of its own. Asyncify's
 		// resume machinery only drives the suspended WASM stack forward on
 		// FULFILLMENT of that await, so before installHttpDispatch (in

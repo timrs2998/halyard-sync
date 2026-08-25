@@ -57,10 +57,10 @@ git-crypt locally if you touch `gitcrypt.ts` or `filter_shim.c`.
 running, testing and contributing need no Docker or Emscripten. One `.wasm`, two glue
 files linked from the same objects:
 
-- `tether-libgit2.js` — shipped. Linked `-sENVIRONMENT=web,worker` with no NODEFS, so
+- `halyard-libgit2.js` — shipped. Linked `-sENVIRONMENT=web,worker` with no NODEFS, so
   the bundle carries no Node filesystem code (the portal reports any `require("fs")`
   in `main.js` as filesystem access on the public listing).
-- `tether-libgit2.node.js` — `tests/libgit2/` only, adds NODEFS so those suites can
+- `halyard-libgit2.node.js` — `tests/libgit2/` only, adds NODEFS so those suites can
   mount a real temp directory and cross-check against the `git` CLI.
 
 - **Don't hand-edit it.** Regenerate via

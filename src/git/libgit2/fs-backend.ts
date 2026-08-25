@@ -491,10 +491,10 @@ export class VaultMirror {
  * dispatch calls synchronously.
  *
  * Everything in this section was corrected against the ACTUAL compiled
- * `build/dist/tether-libgit2.js` glue — not Emscripten's upstream source,
+ * `build/dist/halyard-libgit2.js` glue — not Emscripten's upstream source,
  * which this build doesn't vendor a copy of — by reading the real, minified
  * `FS`/`MEMFS`/`NODEFS` implementations bundled into that file directly
- * (`node -e "require('...tether-libgit2.js')..."` plus literal string
+ * (`node -e "require('...halyard-libgit2.js')..."` plus literal string
  * searches for `createNode(parent`, `stream_ops:{`, etc. — see this
  * project's phase notes / README for the exact commands). Several real,
  * consequential corrections came out of that versus the original
@@ -655,7 +655,7 @@ export interface ClassicFsBackendGlobals extends EmscriptenFsGlobals {
  * belongs to — rather than hardcoding numbers read out of one specific
  * compiled build (this build's numbers were confirmed to be
  * `{ENOENT:44, EEXIST:20, ENOTDIR:54, EISDIR:31, ENOTEMPTY:55, EIO:29,
- * ENOSYS:52}` by literally decompiling `build/dist/tether-libgit2.js`, but
+ * ENOSYS:52}` by literally decompiling `build/dist/halyard-libgit2.js`, but
  * per `VaultMirrorErrorCode`'s own header comment, trusting a hand-copied
  * number with no compiler/runtime to check it against is exactly the
  * "guessed ABI detail" this project's honesty standard warns against —
@@ -700,7 +700,7 @@ export function deriveErrnoCodes(Module: {
 	};
 
 	const FS = Module.FS;
-	const root = "/__tether_errno_probe__";
+	const root = "/__halyard_errno_probe__";
 	FS.mkdir(root);
 	FS.mkdir(`${root}/dir`);
 	FS.writeFile(`${root}/file`, "x");

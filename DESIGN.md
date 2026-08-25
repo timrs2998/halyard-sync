@@ -52,7 +52,7 @@ These are environmental facts that drive the whole design:
    mobile — esbuild `inject` of a `polyfill-buffer.js` that uses the global Node Buffer
    on desktop and the `buffer` npm polyfill on mobile.
 8. **WASM packaging: everything ships inside `main.js`.** esbuild bundles the
-   compiled Emscripten glue (`build/dist/tether-libgit2.js`) like any other module,
+   compiled Emscripten glue (`build/dist/halyard-libgit2.js`) like any other module,
    and the 1.67 MB `.wasm` binary is embedded alongside it as base64 (~2.3 MB), decoded
    once per engine construction by `src/git/libgit2/wasm-binary.ts` and handed to a
    `Module.instantiateWasm` override.
@@ -117,7 +117,7 @@ src/
 
 The engine (`git/engine.ts`'s `GitEngine`) wraps the real libgit2-over-WASM binding
 (`git/libgit2/engine.ts`'s `Libgit2Module`/`Libgit2Repository`, wrapping the compiled
-`build/dist/tether-libgit2.{js,wasm}` module's `ccall`/`cwrap` surface) instead of a
+`build/dist/halyard-libgit2.{js,wasm}` module's `ccall`/`cwrap` surface) instead of a
 pure-JS reimplementation:
 
 - **Lifecycle is now explicit and async.** Unlike a pure-JS engine, a real

@@ -4,7 +4,7 @@
  * The install shape is the whole point. `wdio-obsidian-service`'s
  * `plugins: ["."]` reproduces exactly what Obsidian's community installer and
  * BRAT deliver — `main.js`, `manifest.json`, `styles.css` and nothing else.
- * A sibling `tether-libgit2.wasm` never arrives by that route, which is why
+ * A sibling `halyard-libgit2.wasm` never arrives by that route, which is why
  * the binary is embedded in `main.js` as base64 (see
  * `src/git/libgit2/wasm-binary.ts`).
  *
@@ -23,7 +23,7 @@
 import { browser, expect } from "@wdio/globals";
 import { describe, it } from "mocha";
 
-const WASM = "tether-libgit2.wasm";
+const WASM = "halyard-libgit2.wasm";
 
 describe("Halyard Sync's libgit2 WASM engine in a real Obsidian instance", function () {
 	it("builds a working engine with no sibling .wasm in the plugin directory", async function () {

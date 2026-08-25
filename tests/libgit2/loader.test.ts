@@ -2,7 +2,7 @@
  * Proves the WASM-loading MECHANISM `src/git/libgit2/loader.ts` implements
  * for the real plugin cutover: `Module.instantiateWasm` fed bytes from a
  * `readWasmBytes` callback — standing in for
- * `app.vault.adapter.readBinary(manifest.dir + "/tether-libgit2.wasm")` —
+ * `app.vault.adapter.readBinary(manifest.dir + "/halyard-libgit2.wasm")` —
  * rather than Emscripten's own default `locateFile`-based fetch/readFileSync
  * path. See `loader.ts`'s header comment for the full packaging decision and
  * exactly what this proves vs. what still needs a real Obsidian smoke test
@@ -27,8 +27,8 @@ import type { RequestUrlLike } from "../../src/git/http-client";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = join(__dirname, "..", "..", "src", "git", "libgit2", "build", "dist");
-const WASM_PATH = join(DIST_DIR, "tether-libgit2.wasm");
-const JS_PATH = join(DIST_DIR, "tether-libgit2.js");
+const WASM_PATH = join(DIST_DIR, "halyard-libgit2.wasm");
+const JS_PATH = join(DIST_DIR, "halyard-libgit2.js");
 
 const compiledModuleExists = existsSync(WASM_PATH) && existsSync(JS_PATH);
 

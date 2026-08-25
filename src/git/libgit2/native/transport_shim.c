@@ -36,7 +36,7 @@
  * body + status out. `Module.__httpDispatch` must be installed by the
  * caller (test harness) before any fetch that reaches this transport runs —
  * see tests/libgit2/asyncify-double-suspension.test.ts. */
-EM_ASYNC_JS(uint8_t *, tether_http_dispatch_js, (
+EM_ASYNC_JS(uint8_t *, halyard_http_dispatch_js, (
 	const char *url,
 	const char *method,
 	const char *content_type,
@@ -46,7 +46,7 @@ EM_ASYNC_JS(uint8_t *, tether_http_dispatch_js, (
 	int *out_status
 ), {
 	if (!Module.__httpDispatch) {
-		throw new Error("tether_http_dispatch_js: Module.__httpDispatch is not installed");
+		throw new Error("halyard_http_dispatch_js: Module.__httpDispatch is not installed");
 	}
 	var urlStr = UTF8ToString(url);
 	var methodStr = UTF8ToString(method);
@@ -82,7 +82,7 @@ typedef struct {
 	size_t read_len;
 	size_t read_cursor;
 	int dispatched;
-} tether_http_stream;
+} halyard_http_stream;
 
 static int buf_append(uint8_t **buf, size_t *len, size_t *cap, const char *data, size_t add) {
 	if (*len + add > *cap) {
@@ -99,7 +99,7 @@ static int buf_append(uint8_t **buf, size_t *len, size_t *cap, const char *data,
 }
 
 static int http_stream_write(git_smart_subtransport_stream *stream, const char *buffer, size_t len) {
-	tether_http_stream *s = (tether_http_stream *)stream;
+	halyard_http_stream *s = (halyard_http_stream *)stream;
 	return buf_append(&s->write_buf, &s->write_len, &s->write_cap, buffer, len);
 }
 
@@ -108,13 +108,13 @@ static int http_stream_read(
 	char *buffer,
 	size_t buf_size,
 	size_t *bytes_read) {
-	tether_http_stream *s = (tether_http_stream *)stream;
+	halyard_http_stream *s = (halyard_http_stream *)stream;
 
 	if (!s->dispatched) {
 		size_t out_len = 0;
 		int status = 0;
 		const char *method = s->content_type != NULL ? "POST" : "GET";
-		uint8_t *resp = tether_http_dispatch_js(
+		uint8_t *resp = halyard_http_dispatch_js(
 			s->url, method, s->content_type,
 			s->write_len > 0 ? s->write_buf : NULL, s->write_len,
 			&out_len, &status);
@@ -138,7 +138,7 @@ static int http_stream_read(
 }
 
 static void http_stream_free(git_smart_subtransport_stream *stream) {
-	tether_http_stream *s = (tether_http_stream *)stream;
+	halyard_http_stream *s = (halyard_http_stream *)stream;
 	free(s->url);
 	free(s->content_type);
 	free(s->write_buf);
@@ -153,7 +153,7 @@ static void http_stream_free(git_smart_subtransport_stream *stream) {
 
 typedef struct {
 	git_smart_subtransport parent;
-} tether_http_subtransport;
+} halyard_http_subtransport;
 
 static int subtransport_action(
 	git_smart_subtransport_stream **out,
@@ -162,7 +162,7 @@ static int subtransport_action(
 	git_smart_service_t action) {
 	(void)transport;
 
-	tether_http_stream *s = (tether_http_stream *)calloc(1, sizeof(tether_http_stream));
+	halyard_http_stream *s = (halyard_http_stream *)calloc(1, sizeof(halyard_http_stream));
 	if (s == NULL) return -1;
 	s->parent.subtransport = transport;
 	s->parent.read = http_stream_read;
@@ -218,7 +218,7 @@ static void subtransport_free(git_smart_subtransport *transport) {
 static int subtransport_create(git_smart_subtransport **out, git_transport *owner, void *param) {
 	(void)owner;
 	(void)param;
-	tether_http_subtransport *t = (tether_http_subtransport *)calloc(1, sizeof(tether_http_subtransport));
+	halyard_http_subtransport *t = (halyard_http_subtransport *)calloc(1, sizeof(halyard_http_subtransport));
 	if (t == NULL) return -1;
 	t->parent.action = subtransport_action;
 	t->parent.close = subtransport_close;
@@ -227,7 +227,7 @@ static int subtransport_create(git_smart_subtransport **out, git_transport *owne
 	return 0;
 }
 
-static git_smart_subtransport_definition tether_http_definition = {
+static git_smart_subtransport_definition halyard_http_definition = {
 	subtransport_create,
 	1, /* rpc: stateless request/response, like real HTTP */
 	NULL
@@ -250,16 +250,16 @@ static git_smart_subtransport_definition tether_http_definition = {
  * URL AND (in engine.ts, not here) how the credential/basic-auth header is
  * decided to apply, never how this C code behaves. */
 EMSCRIPTEN_KEEPALIVE
-int tether_register_http_transport(void) {
-	int rc = git_transport_register("http", git_transport_smart, &tether_http_definition);
+int halyard_register_http_transport(void) {
+	int rc = git_transport_register("http", git_transport_smart, &halyard_http_definition);
 	if (rc < 0 && rc != GIT_EEXISTS) return rc;
-	rc = git_transport_register("https", git_transport_smart, &tether_http_definition);
+	rc = git_transport_register("https", git_transport_smart, &halyard_http_definition);
 	if (rc < 0 && rc != GIT_EEXISTS) return rc;
 	return 0;
 }
 
 EMSCRIPTEN_KEEPALIVE
-int tether_unregister_http_transport(void) {
+int halyard_unregister_http_transport(void) {
 	int rc1 = git_transport_unregister("http");
 	int rc2 = git_transport_unregister("https");
 	if (rc1 < 0) return rc1;
@@ -278,7 +278,7 @@ int tether_unregister_http_transport(void) {
  */
 
 EMSCRIPTEN_KEEPALIVE
-int tether_test_clone_and_checkout(const char *url, const char *dest, char *commit_oid_hex_out) {
+int halyard_test_clone_and_checkout(const char *url, const char *dest, char *commit_oid_hex_out) {
 	git_repository *repo = NULL;
 	git_remote *remote = NULL;
 	git_object *head_commit = NULL;

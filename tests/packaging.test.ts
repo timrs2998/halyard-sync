@@ -19,7 +19,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
-const WASM = join(ROOT, "src", "git", "libgit2", "build", "dist", "tether-libgit2.wasm");
+const WASM = join(ROOT, "src", "git", "libgit2", "build", "dist", "halyard-libgit2.wasm");
 const MAIN_JS = join(ROOT, "main.js");
 
 // main.js is a build output, not committed — a fresh checkout that has not run

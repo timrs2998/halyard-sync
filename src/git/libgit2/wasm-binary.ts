@@ -5,7 +5,7 @@
  * Obsidian install path delivers a fourth file. Obsidian's community-plugin
  * installer and BRAT both fetch exactly `manifest.json`, `main.js` and
  * `styles.css` from a release and ignore every other asset — so a separate
- * `tether-libgit2.wasm` reaches only users who copy files by hand, and
+ * `halyard-libgit2.wasm` reaches only users who copy files by hand, and
  * everyone else gets ENOENT at first sync.
  *
  * Fetching it at runtime instead is not an option: Obsidian's developer
@@ -18,7 +18,7 @@
  * once per engine construction.
  */
 
-import wasmBase64 from "./build/dist/tether-libgit2.wasm";
+import wasmBase64 from "./build/dist/halyard-libgit2.wasm";
 
 /** Decodes the embedded module. `atob` exists on both Electron and the
  * Capacitor webview, which `Buffer` and `fs` do not. */

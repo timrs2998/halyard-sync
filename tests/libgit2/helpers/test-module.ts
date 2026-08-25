@@ -44,10 +44,10 @@ export type TestModuleFactory = () => Promise<TestNativeModule>;
  * every suite that uses it is `describe.skipIf`-gated on that null, so a
  * checkout without the compiled binary still runs the rest of the suite.
  *
- * Pass `tether-libgit2.node.js` (the NODEFS-enabled build) for suites that
- * mount a real host directory; `tether-libgit2.js` is the shipped build, which
+ * Pass `halyard-libgit2.node.js` (the NODEFS-enabled build) for suites that
+ * mount a real host directory; `halyard-libgit2.js` is the shipped build, which
  * targets the web and has no Node filesystem at all. Both are linked from the
- * same objects and share one `tether-libgit2.wasm` (see build/build.sh).
+ * same objects and share one `halyard-libgit2.wasm` (see build/build.sh).
  *
  * The bytes are handed to the glue through `instantiateWasm`, the same hook
  * `src/git/libgit2/loader.ts` uses in production — without it the shipped glue
@@ -57,7 +57,7 @@ export type TestModuleFactory = () => Promise<TestNativeModule>;
  */
 export function loadModuleFactory(moduleJsPath: string): TestModuleFactory | null {
 	if (!existsSync(moduleJsPath)) return null;
-	const wasmPath = join(dirname(moduleJsPath), "tether-libgit2.wasm");
+	const wasmPath = join(dirname(moduleJsPath), "halyard-libgit2.wasm");
 	try {
 		const require = createRequire(import.meta.url);
 		const mod: unknown = require(moduleJsPath);

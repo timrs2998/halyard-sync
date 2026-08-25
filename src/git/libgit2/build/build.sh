@@ -25,8 +25,8 @@
 #   BUILD.md's "Windows/Docker Desktop gotchas" section.)
 #
 # Produces (on success):
-#   dist/tether-libgit2.js    — Emscripten glue (MODULARIZE'd factory function)
-#   dist/tether-libgit2.wasm  — the compiled module
+#   dist/halyard-libgit2.js    — Emscripten glue (MODULARIZE'd factory function)
+#   dist/halyard-libgit2.wasm  — the compiled module
 #
 # Env overrides: WORKDIR (default: ./.build-work), JOBS (default: nproc).
 
@@ -285,8 +285,8 @@ echo "built: $STATIC_LIB"
 #   -sALLOW_MEMORY_GROWTH=1   — vault sizes are not known upfront; a fixed
 #                                heap would need worst-case sizing guesswork.
 #   -sMODULARIZE=1
-#   -sEXPORT_NAME=TetherLibgit2 — a factory function
-#                                `TetherLibgit2(moduleOverrides)` rather
+#   -sEXPORT_NAME=HalyardLibgit2 — a factory function
+#                                `HalyardLibgit2(moduleOverrides)` rather
 #                                than a global, so multiple instances (e.g.
 #                                test isolation) don't collide and so it
 #                                bundles cleanly under esbuild.
@@ -326,8 +326,8 @@ echo "built: $STATIC_LIB"
 # git_reference_lookup, git_annotated_commit_from_ref/_id/_free,
 # git_merge_commits, git_index_has_conflicts, git_index_conflict_iterator_new/
 # _next/_free, git_attr_get/_value, git_index_entrycount/_get_byindex, plus
-# native/engine_shim.c's new tether_merge_conflict_paths_collect and
-# tether_list_paths_with_attribute collectors — see engine.ts's merge()/
+# native/engine_shim.c's new halyard_merge_conflict_paths_collect and
+# halyard_list_paths_with_attribute collectors — see engine.ts's merge()/
 # listPathsWithAttribute() header comments for exactly how each is used and,
 # for merge() specifically, why the top-level git_merge() C entry point
 # (already exported, unused by this phase) was deliberately NOT called.
@@ -374,16 +374,16 @@ EXPORTED_FUNCTIONS='[
   "_git_filter_register","_git_filter_unregister",
   "_git_error_last",
   "_git_object_lookup","_git_oid_tostr","_git_oid_fromstr",
-  "_tether_register_gitcrypt_filter","_tether_unregister_gitcrypt_filter",
-  "_tether_register_http_transport","_tether_unregister_http_transport",
-  "_tether_test_clone_and_checkout",
+  "_halyard_register_gitcrypt_filter","_halyard_unregister_gitcrypt_filter",
+  "_halyard_register_http_transport","_halyard_unregister_http_transport",
+  "_halyard_test_clone_and_checkout",
   "_git_fetch_options_init",
-  "_tether_status_collect","_tether_index_add_blob",
-  "_tether_revwalk_collect","_tether_remote_ls_collect",
-  "_tether_list_refs_with_glob","_tether_read_blob_at_path",
-  "_tether_remote_fetch","_tether_remote_push",
-  "_tether_merge_conflict_paths_collect","_tether_list_paths_with_attribute",
-  "_tether_merge_commits_opts",
+  "_halyard_status_collect","_halyard_index_add_blob",
+  "_halyard_revwalk_collect","_halyard_remote_ls_collect",
+  "_halyard_list_refs_with_glob","_halyard_read_blob_at_path",
+  "_halyard_remote_fetch","_halyard_remote_push",
+  "_halyard_merge_conflict_paths_collect","_halyard_list_paths_with_attribute",
+  "_halyard_merge_commits_opts",
   "_malloc","_free"
 ]'
 
@@ -391,7 +391,7 @@ EXPORTED_FUNCTIONS='[
 # Two link steps, from the same objects
 # ---------------------------------------------------------------------------
 #
-# The SHIPPED module (`tether-libgit2.js`) is linked for the web only:
+# The SHIPPED module (`halyard-libgit2.js`) is linked for the web only:
 #
 #   -sENVIRONMENT=web,worker  drops Emscripten's Node.js branch from the glue.
 #                             That branch is dead inside Obsidian either way
@@ -410,7 +410,7 @@ EXPORTED_FUNCTIONS='[
 #                             the plugin mounts it — that is VaultMirror's job,
 #                             see ../fs-backend.ts.
 #
-# The TEST module (`tether-libgit2.node.js`) keeps both, because the Node-based
+# The TEST module (`halyard-libgit2.node.js`) keeps both, because the Node-based
 # suite under `tests/libgit2/` mounts a real temp directory through NODEFS and
 # cross-checks the module's on-disk output against the real `git` CLI. It is
 # never shipped: esbuild bundles only the file `loader.ts` imports.
@@ -426,7 +426,7 @@ COMMON_LINK_FLAGS=(
 	-sSTACK_SIZE=5242880
 	-sALLOW_MEMORY_GROWTH=1
 	-sMODULARIZE=1
-	-sEXPORT_NAME=TetherLibgit2
+	-sEXPORT_NAME=HalyardLibgit2
 	-sEXPORTED_FUNCTIONS="$EXPORTED_FUNCTIONS"
 	-sFILESYSTEM=1
 	--no-entry
@@ -441,13 +441,13 @@ emcc \
 	"${COMMON_LINK_FLAGS[@]}" \
 	-sENVIRONMENT=web,worker \
 	-sEXPORTED_RUNTIME_METHODS="$RUNTIME_METHODS" \
-	-o "$DIST/tether-libgit2.js"
+	-o "$DIST/halyard-libgit2.js"
 
 # The shipped glue must not carry a Node filesystem path at all. Checked here
 # rather than trusted: this split is the whole point of the two link steps, and
 # a flag that silently stopped taking effect on an Emscripten upgrade would
 # otherwise reintroduce it unnoticed.
-if grep -qE 'require\("(node:)?fs"\)' "$DIST/tether-libgit2.js"; then
+if grep -qE 'require\("(node:)?fs"\)' "$DIST/halyard-libgit2.js"; then
 	echo "error: shipped glue still references Node's fs module - check -sENVIRONMENT" >&2
 	exit 1
 fi
@@ -458,18 +458,18 @@ emcc \
 	"${COMMON_LINK_FLAGS[@]}" \
 	-sEXPORTED_RUNTIME_METHODS="$RUNTIME_METHODS_NODE" \
 	-lnodefs.js \
-	-o "$DIST/tether-libgit2.node.js"
+	-o "$DIST/halyard-libgit2.node.js"
 
 # Both links produce the same wasm — the module's code does not depend on which
 # JS environment its glue targets — so committing the second copy would add
 # ~1.7MB of duplicate binary to the repo for nothing. Verified rather than
 # assumed, then dropped; `tests/libgit2/helpers/test-module.ts` points the test
 # glue at the shipped wasm through Emscripten's `locateFile` hook.
-if ! cmp -s "$DIST/tether-libgit2.wasm" "$DIST/tether-libgit2.node.wasm"; then
+if ! cmp -s "$DIST/halyard-libgit2.wasm" "$DIST/halyard-libgit2.node.wasm"; then
 	echo "error: shipped and test wasm differ - the test glue needs its own copy after all" >&2
 	exit 1
 fi
-rm "$DIST/tether-libgit2.node.wasm"
+rm "$DIST/halyard-libgit2.node.wasm"
 
 echo
 echo "== build complete =="

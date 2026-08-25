@@ -11,7 +11,7 @@
  * the helper to optionally require Basic auth and reject/serve
  * accordingly):
  *
- *   1. `native/transport_shim.c`'s `tether_register_http_transport` (this
+ *   1. `native/transport_shim.c`'s `halyard_register_http_transport` (this
  *      phase's change: register the same subtransport definition under
  *      BOTH `http` and `https`, not just `http`) makes an `https://` URL
  *      actually resolve through our custom transport instead of failing
@@ -55,7 +55,7 @@ import type { TestNativeModule } from "./helpers/test-module";
 import { loadModuleFactory } from "./helpers/test-module";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const MODULE_JS = join(__dirname, "..", "..", "src", "git", "libgit2", "build", "dist", "tether-libgit2.js");
+const MODULE_JS = join(__dirname, "..", "..", "src", "git", "libgit2", "build", "dist", "halyard-libgit2.js");
 
 const factory = loadModuleFactory(MODULE_JS);
 

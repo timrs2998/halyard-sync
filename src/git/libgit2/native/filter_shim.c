@@ -141,7 +141,7 @@
  * reference, or assume exists — see the phase brief's scope boundary).
  * `Libgit2Module.registerGitCryptFilter(hooks)` in binding.ts is the
  * documented TS-side call that would perform that installation before
- * invoking `tether_register_gitcrypt_filter()` below.
+ * invoking `halyard_register_gitcrypt_filter()` below.
  *
  * ASYNCIFY, WHY IT'S NEEDED HERE SPECIFICALLY: `git_filter_stream_fn` is a
  * synchronous C entry point (libgit2 calls it in the middle of a checkout or
@@ -184,12 +184,12 @@
  * repo-over-HTTP test needs to exercise before this is trusted.
  */
 
-EM_ASYNC_JS(uint8_t *, tether_gitcrypt_encrypt_js, (const char *key_name, const uint8_t *plaintext, size_t plaintext_len, size_t *out_len), {
+EM_ASYNC_JS(uint8_t *, halyard_gitcrypt_encrypt_js, (const char *key_name, const uint8_t *plaintext, size_t plaintext_len, size_t *out_len), {
 	// `Module.__gitcryptEncrypt` is installed by the wiring phase (see
 	// header comment) and must match `GitCryptFilterHooks.encrypt` in
 	// ../binding.ts: (keyName: string, plaintext: Uint8Array) => Promise<Uint8Array>.
 	if (!Module.__gitcryptEncrypt) {
-		throw new Error("tether_gitcrypt_encrypt_js: Module.__gitcryptEncrypt is not installed — registerGitCryptFilter() was not called before this filter ran");
+		throw new Error("halyard_gitcrypt_encrypt_js: Module.__gitcryptEncrypt is not installed — registerGitCryptFilter() was not called before this filter ran");
 	}
 	var keyName = UTF8ToString(key_name);
 	// .slice (not .subarray) so the copy survives independently of HEAPU8
@@ -206,9 +206,9 @@ EM_ASYNC_JS(uint8_t *, tether_gitcrypt_encrypt_js, (const char *key_name, const 
 	return ptr;
 });
 
-EM_ASYNC_JS(uint8_t *, tether_gitcrypt_decrypt_js, (const char *key_name, const uint8_t *ciphertext, size_t ciphertext_len, size_t *out_len), {
+EM_ASYNC_JS(uint8_t *, halyard_gitcrypt_decrypt_js, (const char *key_name, const uint8_t *ciphertext, size_t ciphertext_len, size_t *out_len), {
 	if (!Module.__gitcryptDecrypt) {
-		throw new Error("tether_gitcrypt_decrypt_js: Module.__gitcryptDecrypt is not installed — registerGitCryptFilter() was not called before this filter ran");
+		throw new Error("halyard_gitcrypt_decrypt_js: Module.__gitcryptDecrypt is not installed — registerGitCryptFilter() was not called before this filter ran");
 	}
 	var keyName = UTF8ToString(key_name);
 	var input = HEAPU8.slice(ciphertext, ciphertext + ciphertext_len);
@@ -249,9 +249,9 @@ typedef struct {
 	uint8_t *buffer;
 	size_t len;
 	size_t cap;
-} tether_gitcrypt_stream;
+} halyard_gitcrypt_stream;
 
-static int stream_grow(tether_gitcrypt_stream *s, size_t additional) {
+static int stream_grow(halyard_gitcrypt_stream *s, size_t additional) {
 	if (s->len + additional <= s->cap) return 0;
 	size_t new_cap = s->cap == 0 ? 4096 : s->cap;
 	while (new_cap < s->len + additional) new_cap *= 2;
@@ -263,7 +263,7 @@ static int stream_grow(tether_gitcrypt_stream *s, size_t additional) {
 }
 
 static int stream_write(git_writestream *stream, const char *buffer, size_t len) {
-	tether_gitcrypt_stream *s = (tether_gitcrypt_stream *)stream;
+	halyard_gitcrypt_stream *s = (halyard_gitcrypt_stream *)stream;
 	if (stream_grow(s, len) < 0) return -1;
 	memcpy(s->buffer + s->len, buffer, len);
 	s->len += len;
@@ -271,14 +271,14 @@ static int stream_write(git_writestream *stream, const char *buffer, size_t len)
 }
 
 static int stream_close(git_writestream *stream) {
-	tether_gitcrypt_stream *s = (tether_gitcrypt_stream *)stream;
+	halyard_gitcrypt_stream *s = (halyard_gitcrypt_stream *)stream;
 	size_t out_len = 0;
 	uint8_t *out_ptr;
 
 	if (s->mode == GIT_FILTER_TO_ODB) {
-		out_ptr = tether_gitcrypt_encrypt_js(s->key_name, s->buffer, s->len, &out_len);
+		out_ptr = halyard_gitcrypt_encrypt_js(s->key_name, s->buffer, s->len, &out_len);
 	} else {
-		out_ptr = tether_gitcrypt_decrypt_js(s->key_name, s->buffer, s->len, &out_len);
+		out_ptr = halyard_gitcrypt_decrypt_js(s->key_name, s->buffer, s->len, &out_len);
 	}
 	if (out_ptr == NULL) return -1;
 
@@ -289,7 +289,7 @@ static int stream_close(git_writestream *stream) {
 }
 
 static void stream_free(git_writestream *stream) {
-	tether_gitcrypt_stream *s = (tether_gitcrypt_stream *)stream;
+	halyard_gitcrypt_stream *s = (halyard_gitcrypt_stream *)stream;
 	free(s->buffer);
 	free(s->key_name);
 	free(s);
@@ -305,7 +305,7 @@ static void stream_free(git_writestream *stream) {
  * `filter` attribute value (default key, a named key, something unrelated,
  * or none at all), and filter_check() itself decides what to do with it. */
 /* Must be a preprocessor macro, not a `static const char *` variable: this
- * is used as a member initializer for the file-scope `tether_gitcrypt_filter`
+ * is used as a member initializer for the file-scope `halyard_gitcrypt_filter`
  * struct below, and ISO C does not treat a `const`-qualified variable's
  * value as a constant expression there (`const` in C means "read-only",
  * not "compile-time constant" the way it does in C++) -- a real compiler
@@ -368,7 +368,7 @@ static int filter_stream(
 	const git_filter_source *src,
 	git_writestream *next) {
 	(void)self;
-	tether_gitcrypt_stream *s = (tether_gitcrypt_stream *)calloc(1, sizeof(tether_gitcrypt_stream));
+	halyard_gitcrypt_stream *s = (halyard_gitcrypt_stream *)calloc(1, sizeof(halyard_gitcrypt_stream));
 	if (s == NULL) return -1;
 
 	s->parent.write = stream_write;
@@ -397,7 +397,7 @@ static void filter_cleanup(git_filter *self, void *payload) {
 	free(payload); /* the strdup("") from filter_check */
 }
 
-static git_filter tether_gitcrypt_filter = {
+static git_filter halyard_gitcrypt_filter = {
 	GIT_FILTER_VERSION,
 	TETHER_GITCRYPT_ATTRIBUTES,
 	NULL, /* initialize: no per-registration setup needed */
@@ -419,14 +419,14 @@ static git_filter tether_gitcrypt_filter = {
  * documented caller). Returns libgit2's git_filter_register return code
  * (0 on success, < 0 on error — e.g. already registered). */
 EMSCRIPTEN_KEEPALIVE
-int tether_register_gitcrypt_filter(void) {
+int halyard_register_gitcrypt_filter(void) {
 	return git_filter_register(
 		TETHER_GITCRYPT_FILTER_NAME,
-		&tether_gitcrypt_filter,
+		&halyard_gitcrypt_filter,
 		TETHER_GITCRYPT_PRIORITY);
 }
 
 EMSCRIPTEN_KEEPALIVE
-int tether_unregister_gitcrypt_filter(void) {
+int halyard_unregister_gitcrypt_filter(void) {
 	return git_filter_unregister(TETHER_GITCRYPT_FILTER_NAME);
 }

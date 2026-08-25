@@ -48,7 +48,7 @@ import { loadModuleFactory } from "./helpers/test-module";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = join(__dirname, "..", "..", "src", "git", "libgit2", "build", "dist");
-const MODULE_JS = join(DIST_DIR, "tether-libgit2.node.js");
+const MODULE_JS = join(DIST_DIR, "halyard-libgit2.node.js");
 
 const factory = loadModuleFactory(MODULE_JS);
 
@@ -83,7 +83,7 @@ function randomKeyMaterial(): { aesKey: Uint8Array; hmacKey: Uint8Array } {
 
 describe.skipIf(factory === null)("compiled libgit2-WASM git-crypt filter — named keys (real, not mocked)", () => {
 	it("a named key round-trips independently of the default key, and the two keys are NOT interchangeable", async () => {
-		const dir = mkdtempSync(join(tmpdir(), "tether-libgit2-named-key-"));
+		const dir = mkdtempSync(join(tmpdir(), "halyard-libgit2-named-key-"));
 
 		const defaultPlaintext = "default-key file: unnamed, plain filter=git-crypt\n";
 		const financePlaintext = "finance-key file: filter=git-crypt-finance, a DIFFERENT key\n";
@@ -121,7 +121,7 @@ describe.skipIf(factory === null)("compiled libgit2-WASM git-crypt filter — na
 		};
 
 		expect(await ccallAsync(Module, "git_libgit2_init", "number", [], [])).toBeGreaterThanOrEqual(0);
-		expect(await ccallAsync(Module, "tether_register_gitcrypt_filter", "number", [], [])).toBe(0);
+		expect(await ccallAsync(Module, "halyard_register_gitcrypt_filter", "number", [], [])).toBe(0);
 
 		const repoPtrPtr = Module._malloc(4);
 		let rc = await ccallAsync(Module, "git_repository_init", "number", ["number", "string", "number"], [
@@ -252,7 +252,7 @@ describe.skipIf(factory === null)("compiled libgit2-WASM git-crypt filter — na
 	}, 30_000);
 
 	it("an unrelated filter (lfs) alongside git-crypt paths is left untouched (GIT_PASSTHROUGH)", async () => {
-		const dir = mkdtempSync(join(tmpdir(), "tether-libgit2-named-key-lfs-"));
+		const dir = mkdtempSync(join(tmpdir(), "halyard-libgit2-named-key-lfs-"));
 
 		writeFileSync(
 			join(dir, ".gitattributes"),
@@ -270,7 +270,7 @@ describe.skipIf(factory === null)("compiled libgit2-WASM git-crypt filter — na
 		Module.__gitcryptDecrypt = async (_keyName: string, ct: Uint8Array) => decryptBlob(aesKey, ct);
 
 		expect(await ccallAsync(Module, "git_libgit2_init", "number", [], [])).toBeGreaterThanOrEqual(0);
-		expect(await ccallAsync(Module, "tether_register_gitcrypt_filter", "number", [], [])).toBe(0);
+		expect(await ccallAsync(Module, "halyard_register_gitcrypt_filter", "number", [], [])).toBe(0);
 
 		const repoPtrPtr = Module._malloc(4);
 		let rc = await ccallAsync(Module, "git_repository_init", "number", ["number", "string", "number"], [

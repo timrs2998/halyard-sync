@@ -1,7 +1,7 @@
 /**
  * Real, end-to-end smoke test for the compiled libgit2-WASM module
- * (`src/git/libgit2/build/dist/tether-libgit2.js` /
- * `src/git/libgit2/build/dist/tether-libgit2.wasm`, produced by
+ * (`src/git/libgit2/build/dist/halyard-libgit2.js` /
+ * `src/git/libgit2/build/dist/halyard-libgit2.wasm`, produced by
  * `src/git/libgit2/build/build.sh` — see that directory's README.md and
  * BUILD.md for how it's built and what's still open).
  *
@@ -16,7 +16,7 @@
  *      CLI, which is exactly how assertion (1) below is done — independent
  *      verification, not trusting the WASM module's own read-back.
  *   3. Registers the real git-crypt filter shim (`native/filter_shim.c`'s
- *      `tether_register_gitcrypt_filter`), wired to the real, already-unit-
+ *      `halyard_register_gitcrypt_filter`), wired to the real, already-unit-
  *      tested `encryptBlob`/`decryptBlob` from `src/git/gitcrypt.ts` (not a
  *      fake/stub crypto implementation — the whole point of this test is an
  *      end-to-end proof, and stubbing the crypto would prove nothing about
@@ -55,7 +55,7 @@ import { loadModuleFactory } from "./helpers/test-module";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = join(__dirname, "..", "..", "src", "git", "libgit2", "build", "dist");
-const MODULE_JS = join(DIST_DIR, "tether-libgit2.node.js");
+const MODULE_JS = join(DIST_DIR, "halyard-libgit2.node.js");
 
 const factory = loadModuleFactory(MODULE_JS);
 
@@ -88,7 +88,7 @@ function lastError(Module: TestNativeModule): string {
 
 describe.skipIf(factory === null)("compiled libgit2-WASM git-crypt filter (real, not mocked)", () => {
 	it("clean filter encrypts into the ODB and smudge filter decrypts back into the working tree", async () => {
-		const dir = mkdtempSync(join(tmpdir(), "tether-libgit2-smoke-"));
+		const dir = mkdtempSync(join(tmpdir(), "halyard-libgit2-smoke-"));
 
 		const plaintext = "line one: real end-to-end proof\nline two: through the compiled filter\n";
 		writeFileSync(join(dir, ".gitattributes"), "secret.txt filter=git-crypt\n");
@@ -113,7 +113,7 @@ describe.skipIf(factory === null)("compiled libgit2-WASM git-crypt filter (real,
 
 		expect(await ccallAsync(Module, "git_libgit2_init", "number", [], [])).toBeGreaterThanOrEqual(0);
 
-		const regRc = await ccallAsync(Module, "tether_register_gitcrypt_filter", "number", [], []);
+		const regRc = await ccallAsync(Module, "halyard_register_gitcrypt_filter", "number", [], []);
 		expect(regRc).toBe(0);
 
 		const repoPtrPtr = Module._malloc(4);

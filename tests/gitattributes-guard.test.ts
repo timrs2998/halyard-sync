@@ -32,7 +32,7 @@ import { MockAdapter } from "./helpers/mock-adapter";
 import { loadModuleFactory } from "./libgit2/helpers/test-module";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const MODULE_JS = join(__dirname, "..", "src", "git", "libgit2", "build", "dist", "tether-libgit2.js");
+const MODULE_JS = join(__dirname, "..", "src", "git", "libgit2", "build", "dist", "halyard-libgit2.js");
 
 const factory = loadModuleFactory(MODULE_JS);
 

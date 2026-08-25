@@ -61,7 +61,7 @@ jobs:
 
       - name: Record the committed artifact's checksums
         run: |
-          sha256sum src/git/libgit2/build/dist/tether-libgit2.js                     src/git/libgit2/build/dist/tether-libgit2.wasm             | tee "$RUNNER_TEMP/committed.sha256"
+          sha256sum src/git/libgit2/build/dist/halyard-libgit2.js                     src/git/libgit2/build/dist/halyard-libgit2.wasm             | tee "$RUNNER_TEMP/committed.sha256"
 
       - name: Build
         working-directory: src/git/libgit2
@@ -88,13 +88,13 @@ jobs:
             echo "--- committed ---"
             cat "$RUNNER_TEMP/committed.sha256"
             echo "--- rebuilt ---"
-            sha256sum src/git/libgit2/build/dist/tether-libgit2.js                       src/git/libgit2/build/dist/tether-libgit2.wasm || true
+            sha256sum src/git/libgit2/build/dist/halyard-libgit2.js                       src/git/libgit2/build/dist/halyard-libgit2.wasm || true
           fi
 
       - uses: actions/upload-artifact@v4
         with:
-          name: tether-libgit2
+          name: halyard-libgit2
           path: |
-            src/git/libgit2/build/dist/tether-libgit2.js
-            src/git/libgit2/build/dist/tether-libgit2.node.js
-            src/git/libgit2/build/dist/tether-libgit2.wasm
+            src/git/libgit2/build/dist/halyard-libgit2.js
+            src/git/libgit2/build/dist/halyard-libgit2.node.js
+            src/git/libgit2/build/dist/halyard-libgit2.wasm

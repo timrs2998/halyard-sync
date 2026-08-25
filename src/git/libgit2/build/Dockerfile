@@ -4,7 +4,7 @@
 #
 # STATUS: real, built and used — see BUILD.md for the full real build log
 # and every fix. `docker build` against this file, followed by `docker run`,
-# is exactly how `build/dist/tether-libgit2.{js,wasm}` (committed to the
+# is exactly how `build/dist/halyard-libgit2.{js,wasm}` (committed to the
 # repo) were actually produced.
 #
 # Usage (see BUILD.md's "How to actually build it" for the full real

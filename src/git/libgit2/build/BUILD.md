@@ -1,13 +1,13 @@
 # Building the libgit2-WASM module
 
 Compiles libgit2 plus this directory's native shims to Emscripten output:
-`build/dist/tether-libgit2.wasm`, plus two JS glue files linked from the same
+`build/dist/halyard-libgit2.wasm`, plus two JS glue files linked from the same
 objects that share it.
 
 | File | Linked for | Used by |
 |---|---|---|
-| `tether-libgit2.js` | `-sENVIRONMENT=web,worker`, no NODEFS | the plugin — this is what ships inside `main.js` |
-| `tether-libgit2.node.js` | default environments, `-lnodefs.js` | `tests/libgit2/` only, never shipped |
+| `halyard-libgit2.js` | `-sENVIRONMENT=web,worker`, no NODEFS | the plugin — this is what ships inside `main.js` |
+| `halyard-libgit2.node.js` | default environments, `-lnodefs.js` | `tests/libgit2/` only, never shipped |
 
 The split exists so the shipped bytes contain no Node filesystem path at all:
 Emscripten's Node branch is dead inside Obsidian either way, but a
@@ -45,11 +45,11 @@ cd src/git/libgit2
 docker build -t halyard-sync-libgit2-wasm -f build/Dockerfile .
 
 # A named volume, not a host bind mount — see "Windows gotchas" below.
-docker volume create tether-libgit2-buildwork
+docker volume create halyard-libgit2-buildwork
 
 docker run --rm \
   -v "$(pwd)/build/dist:/work/build/dist" \
-  -v "tether-libgit2-buildwork:/work/build/.build-work" \
+  -v "halyard-libgit2-buildwork:/work/build/.build-work" \
   halyard-sync-libgit2-wasm
 ```
 

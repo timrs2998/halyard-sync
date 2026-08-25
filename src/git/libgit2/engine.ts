@@ -1,6 +1,6 @@
 /**
  * The real implementation of `binding.ts`'s `Libgit2Module`/`Libgit2Repository`
- * contract, wrapping the compiled `build/dist/tether-libgit2.{js,wasm}`
+ * contract, wrapping the compiled `build/dist/halyard-libgit2.{js,wasm}`
  * module's `ccall`/`cwrap` surface.
  *
  * ---------------------------------------------------------------------------
@@ -279,7 +279,7 @@ async function freeVoid(Module: NativeModule, fn: string, ptr: number): Promise<
 }
 
 /** Parses the `[20-byte oid][u32 nameLen][name bytes]`-repeated flat format
- * produced by `tether_remote_ls_collect`/`tether_list_refs_with_glob` in
+ * produced by `halyard_remote_ls_collect`/`halyard_list_refs_with_glob` in
  * native/engine_shim.c. */
 function parseOidNameRecords(
 	Module: NativeModule,
@@ -304,7 +304,7 @@ function parseOidNameRecords(
 }
 
 /** Parses the `[u32 statusFlags][u32 pathLen][path bytes]`-repeated flat
- * format produced by `tether_status_collect` in native/engine_shim.c. */
+ * format produced by `halyard_status_collect` in native/engine_shim.c. */
 function parseStatusRecords(Module: NativeModule, bufPtr: number, count: number): StatusEntry[] {
 	const entries: StatusEntry[] = [];
 	if (count === 0 || bufPtr === 0) return entries;
@@ -324,7 +324,7 @@ function parseStatusRecords(Module: NativeModule, bufPtr: number, count: number)
 }
 
 /** Parses the `[u32 pathLen][path bytes]`-repeated flat format produced by
- * `tether_merge_conflict_paths_collect` in native/engine_shim.c. */
+ * `halyard_merge_conflict_paths_collect` in native/engine_shim.c. */
 function parsePathRecords(Module: NativeModule, bufPtr: number, count: number): string[] {
 	const results: string[] = [];
 	if (count === 0 || bufPtr === 0) return results;
@@ -342,7 +342,7 @@ function parsePathRecords(Module: NativeModule, bufPtr: number, count: number): 
 }
 
 /** Parses the `[u32 pathLen][path bytes][u32 valueLen][value bytes]`-repeated
- * flat format produced by `tether_list_paths_with_attribute` in
+ * flat format produced by `halyard_list_paths_with_attribute` in
  * native/engine_shim.c. */
 function parsePathValueRecords(
 	Module: NativeModule,
@@ -527,7 +527,7 @@ async function installHttpDispatch(
 			return { status: res.status, body: responseBody };
 		} catch (err) {
 			// MUST resolve, never reject: `native/transport_shim.c`'s
-			// `tether_http_dispatch_js` (an `EM_ASYNC_JS` block) awaits this
+			// `halyard_http_dispatch_js` (an `EM_ASYNC_JS` block) awaits this
 			// function directly with no try/catch of its own. Asyncify's
 			// resume machinery only drives the suspended WASM stack forward
 			// on FULFILLMENT of that await — an uncaught rejection here
@@ -693,7 +693,7 @@ class Libgit2RepositoryImpl implements Libgit2Repository {
 	/**
 	 * Walks every path currently in the index and asks libgit2's real
 	 * `.gitattributes`-resolution machinery (`git_attr_get`, via
-	 * `tether_list_paths_with_attribute` in native/engine_shim.c — see that
+	 * `halyard_list_paths_with_attribute` in native/engine_shim.c — see that
 	 * function's doc comment for exactly why a C-side collector, not
 	 * per-path `ccall`s, does the walk) which paths resolve `attribute` to a
 	 * real string value. Uses `GIT_ATTR_CHECK_INDEX_ONLY` (baked into the
@@ -707,7 +707,7 @@ class Libgit2RepositoryImpl implements Libgit2Repository {
 		const index = await this.getIndex();
 		const outBuf = mallocOutPtr(this.Module);
 		const outCount = mallocOutPtr(this.Module);
-		const rc = await ccallAsync(this.Module, "tether_list_paths_with_attribute", "number", [
+		const rc = await ccallAsync(this.Module, "halyard_list_paths_with_attribute", "number", [
 			"number",
 			"number",
 			"string",
@@ -739,7 +739,7 @@ class Libgit2RepositoryImpl implements Libgit2Repository {
 		}
 		const outBuf = mallocOutPtr(this.Module);
 		const outCount = mallocOutPtr(this.Module);
-		const rc = await ccallAsync(this.Module, "tether_status_collect", "number", [
+		const rc = await ccallAsync(this.Module, "halyard_status_collect", "number", [
 			"number",
 			"number",
 			"number",
@@ -788,7 +788,7 @@ class Libgit2RepositoryImpl implements Libgit2Repository {
 		const contentPtr = this.Module._malloc(content.byteLength || 1);
 		this.Module.HEAPU8.set(content, contentPtr);
 		const outOid = this.Module._malloc(OID_SIZE);
-		const rc = await ccallAsync(this.Module, "tether_index_add_blob", "number", [
+		const rc = await ccallAsync(this.Module, "halyard_index_add_blob", "number", [
 			"number",
 			"number",
 			"string",
@@ -896,7 +896,7 @@ class Libgit2RepositoryImpl implements Libgit2Repository {
 		} else {
 			// NOTE: git_time_t is a 64-bit C type; this build was never verified
 			// against a real, non-integer-overflowing Emscripten ccall marshaling
-			// path for a 64-bit *parameter* the way `tether_read_blob_at_path`
+			// path for a 64-bit *parameter* the way `halyard_read_blob_at_path`
 			// deliberately avoids for a 64-bit *return* value (see that C
 			// function's header comment). Unix timestamps comfortably fit in
 			// JS's safe-integer range and ccall's "number" arg marshaling for a
@@ -1015,7 +1015,7 @@ class Libgit2RepositoryImpl implements Libgit2Repository {
 		const commitPtr = writeOidHex(this.Module, commitOid);
 		const outBuf = mallocOutPtr(this.Module);
 		const outLen = mallocOutPtr(this.Module);
-		const rc = await ccallAsync(this.Module, "tether_read_blob_at_path", "number", [
+		const rc = await ccallAsync(this.Module, "halyard_read_blob_at_path", "number", [
 			"number",
 			"number",
 			"string",
@@ -1068,7 +1068,7 @@ class Libgit2RepositoryImpl implements Libgit2Repository {
 		const untilPtr = opts?.until ? writeOidHex(this.Module, opts.until) : 0;
 		const outBuf = mallocOutPtr(this.Module);
 		const outCount = mallocOutPtr(this.Module);
-		const rc = await ccallAsync(this.Module, "tether_revwalk_collect", "number", [
+		const rc = await ccallAsync(this.Module, "halyard_revwalk_collect", "number", [
 			"number",
 			"number",
 			"number",
@@ -1266,7 +1266,7 @@ class Libgit2RepositoryImpl implements Libgit2Repository {
 		}
 		const theirCommit = readOutPtr(this.Module, theirCommitSlot);
 
-		// `tether_merge_commits_opts`, not a raw `git_merge_commits` call: a
+		// `halyard_merge_commits_opts`, not a raw `git_merge_commits` call: a
 		// real, non-default `git_merge_options` (rename detection, patience/
 		// minimal diff, ignore-whitespace-change) built in C — see that
 		// function's header comment in engine_shim.c for why each flag is on
@@ -1275,7 +1275,7 @@ class Libgit2RepositoryImpl implements Libgit2Repository {
 		// index or a negative rc, never touches the repo's real index/working
 		// tree either way.
 		const indexSlot = mallocOutPtr(this.Module);
-		rc = await ccallAsync(this.Module, "tether_merge_commits_opts", "number", [
+		rc = await ccallAsync(this.Module, "halyard_merge_commits_opts", "number", [
 			"number",
 			"number",
 			"number",
@@ -1313,7 +1313,7 @@ class Libgit2RepositoryImpl implements Libgit2Repository {
 		if (hasConflicts) {
 			const outBuf = mallocOutPtr(this.Module);
 			const outCount = mallocOutPtr(this.Module);
-			rc = await ccallAsync(this.Module, "tether_merge_conflict_paths_collect", "number", [
+			rc = await ccallAsync(this.Module, "halyard_merge_conflict_paths_collect", "number", [
 				"number",
 				"number",
 				"number",
@@ -1505,7 +1505,7 @@ class Libgit2RepositoryImpl implements Libgit2Repository {
 		const dispatch = await installHttpDispatch(this.Module, this.requestUrlFn, remoteUrl ?? "", net);
 
 		const refspec = branch ? `+refs/heads/${branch}:refs/remotes/${remote}/${branch}` : null;
-		rc = await ccallAsync(this.Module, "tether_remote_fetch", "number", ["number", "string", "number"], [
+		rc = await ccallAsync(this.Module, "halyard_remote_fetch", "number", ["number", "string", "number"], [
 			remotePtr,
 			refspec,
 			depth ?? 0,
@@ -1516,7 +1516,7 @@ class Libgit2RepositoryImpl implements Libgit2Repository {
 		const glob = branch ? `refs/remotes/${remote}/${branch}` : `refs/remotes/${remote}/*`;
 		const outBuf = mallocOutPtr(this.Module);
 		const outCount = mallocOutPtr(this.Module);
-		rc = await ccallAsync(this.Module, "tether_list_refs_with_glob", "number", [
+		rc = await ccallAsync(this.Module, "halyard_list_refs_with_glob", "number", [
 			"number",
 			"string",
 			"number",
@@ -1555,7 +1555,7 @@ class Libgit2RepositoryImpl implements Libgit2Repository {
 		const remoteRef = opts?.remoteRef ?? localRef;
 		const refspec = `${opts?.force ? "+" : ""}refs/heads/${localRef}:refs/heads/${remoteRef}`;
 
-		rc = await ccallAsync(this.Module, "tether_remote_push", "number", ["number", "string"], [
+		rc = await ccallAsync(this.Module, "halyard_remote_push", "number", ["number", "string"], [
 			remotePtr,
 			refspec,
 		]);
@@ -1662,7 +1662,7 @@ class Libgit2ModuleImpl implements Libgit2Module {
 		const dispatch = await installHttpDispatch(this.Module, this.requestUrlFn, url, net);
 		const outBuf = mallocOutPtr(this.Module);
 		const outCount = mallocOutPtr(this.Module);
-		const rc = await ccallAsync(this.Module, "tether_remote_ls_collect", "number", [
+		const rc = await ccallAsync(this.Module, "halyard_remote_ls_collect", "number", [
 			"string",
 			"number",
 			"number",
@@ -1680,12 +1680,12 @@ class Libgit2ModuleImpl implements Libgit2Module {
 	async registerGitCryptFilter(hooks: GitCryptFilterHooks): Promise<void> {
 		this.Module.__gitcryptEncrypt = (keyName: string, pt: Uint8Array) => hooks.encrypt(keyName, pt);
 		this.Module.__gitcryptDecrypt = (keyName: string, ct: Uint8Array) => hooks.decrypt(keyName, ct);
-		const rc = await ccallAsync(this.Module, "tether_register_gitcrypt_filter", "number", [], []);
+		const rc = await ccallAsync(this.Module, "halyard_register_gitcrypt_filter", "number", [], []);
 		throwIfError(this.Module, rc, "registerGitCryptFilter");
 	}
 
 	async unregisterGitCryptFilter(): Promise<void> {
-		const rc = await ccallAsync(this.Module, "tether_unregister_gitcrypt_filter", "number", [], []);
+		const rc = await ccallAsync(this.Module, "halyard_unregister_gitcrypt_filter", "number", [], []);
 		delete this.Module.__gitcryptEncrypt;
 		delete this.Module.__gitcryptDecrypt;
 		throwIfError(this.Module, rc, "unregisterGitCryptFilter");
@@ -1697,7 +1697,7 @@ class Libgit2ModuleImpl implements Libgit2Module {
 // ---------------------------------------------------------------------------
 
 /** The compiled module's factory function shape (Emscripten's
- * `-sMODULARIZE=1 -sEXPORT_NAME=TetherLibgit2` output — see build/BUILD.md).
+ * `-sMODULARIZE=1 -sEXPORT_NAME=HalyardLibgit2` output — see build/BUILD.md).
  * Its module surface is declared in `native-module.ts`. */
 export type Libgit2ModuleFactory = NativeModuleFactory;
 
@@ -1725,15 +1725,15 @@ export async function wrapLibgit2Module(
 ): Promise<Libgit2Module> {
 	let rc = await ccallAsync(m, "git_libgit2_init", "number", [], []);
 	if (rc < 0) throwIfError(m, rc, "git_libgit2_init");
-	rc = await ccallAsync(m, "tether_register_http_transport", "number", [], []);
-	if (rc < 0) throwIfError(m, rc, "tether_register_http_transport");
+	rc = await ccallAsync(m, "halyard_register_http_transport", "number", [], []);
+	if (rc < 0) throwIfError(m, rc, "halyard_register_http_transport");
 	return new Libgit2ModuleImpl(m, options.requestUrl);
 }
 
 /**
  * Loads the compiled module via `factory`, calls `git_libgit2_init`, and
  * registers the (production, HTTPS-capable) custom smart-HTTP transport —
- * see `native/transport_shim.c`'s `tether_register_http_transport`, which
+ * see `native/transport_shim.c`'s `halyard_register_http_transport`, which
  * this phase extended to register under both `http` and `https` schemes.
  *
  * Use `wrapLibgit2Module` directly instead when the caller needs to mount a

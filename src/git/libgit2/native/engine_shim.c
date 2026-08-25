@@ -22,9 +22,9 @@
  * comments for the exact record shape each of these produces.
  *
  * Added for `merge()`/`listPathsWithAttribute()`:
- * `tether_merge_conflict_paths_collect` (flattens a `git_index_conflict_iterator`'s
+ * `halyard_merge_conflict_paths_collect` (flattens a `git_index_conflict_iterator`'s
  * `git_index_entry` triples into conflicted-path strings) and
- * `tether_list_paths_with_attribute` (flattens every index path's resolved
+ * `halyard_list_paths_with_attribute` (flattens every index path's resolved
  * `git_attr_get` value into path/value pairs) — see each function's own doc
  * comment below. Everything else `merge()` needs (annotated commits,
  * `git_merge_analysis`, `git_merge_commits`, `git_index_has_conflicts`) is
@@ -84,7 +84,7 @@ static int append_u32(uint8_t **buf, size_t *len, size_t *cap, uint32_t v) {
  * contract of exposing the bitmask raw rather than pre-decoded.
  */
 EMSCRIPTEN_KEEPALIVE
-int tether_status_collect(
+int halyard_status_collect(
 	git_repository *repo,
 	const char **pathspecs,
 	int npathspecs,
@@ -151,7 +151,7 @@ int tether_status_collect(
  * etc.).
  */
 EMSCRIPTEN_KEEPALIVE
-int tether_index_add_blob(
+int halyard_index_add_blob(
 	git_repository *repo,
 	git_index *index,
 	const char *path,
@@ -190,7 +190,7 @@ int tether_index_add_blob(
  * binding.ts's doc comment on `log`.
  */
 EMSCRIPTEN_KEEPALIVE
-int tether_revwalk_collect(
+int halyard_revwalk_collect(
 	git_repository *repo,
 	const uint8_t *start_oid,
 	const uint8_t *until_oid,
@@ -264,7 +264,7 @@ int tether_revwalk_collect(
  * buffers ever cross the boundary.
  */
 EMSCRIPTEN_KEEPALIVE
-int tether_read_blob_at_path(
+int halyard_read_blob_at_path(
 	git_repository *repo,
 	const uint8_t *commit_oid,
 	const char *path,
@@ -320,7 +320,7 @@ int tether_read_blob_at_path(
  * this file.
  * ---------------------------------------------------------------------------
  *
- * `tether_remote_fetch` backs `Libgit2Repository.fetch` — `refspec` is NULL
+ * `halyard_remote_fetch` backs `Libgit2Repository.fetch` — `refspec` is NULL
  * to use the remote's configured refspecs (binding.ts: "or the remote's
  * configured refspecs when `branch` is omitted"), or a single explicit
  * `+refs/heads/<branch>:refs/remotes/<remote>/<branch>`-shaped string built
@@ -328,7 +328,7 @@ int tether_read_blob_at_path(
  * matching `CloneOptions.depth`'s optional-shallow contract.
  */
 EMSCRIPTEN_KEEPALIVE
-int tether_remote_fetch(git_remote *remote, const char *refspec, int depth) {
+int halyard_remote_fetch(git_remote *remote, const char *refspec, int depth) {
 	char *refspec_copy = NULL;
 	git_strarray refspecs;
 	git_strarray *refspecs_ptr = NULL;
@@ -358,7 +358,7 @@ int tether_remote_fetch(git_remote *remote, const char *refspec, int depth) {
  * binding.ts's `push` doc comment; the `+` force-prefix is engine.ts's job,
  * not this function's). */
 EMSCRIPTEN_KEEPALIVE
-int tether_remote_push(git_remote *remote, const char *refspec) {
+int halyard_remote_push(git_remote *remote, const char *refspec) {
 	char *refspec_copy = strdup(refspec);
 	if (refspec_copy == NULL) return -1;
 	git_strarray refspecs;
@@ -378,11 +378,11 @@ int tether_remote_push(git_remote *remote, const char *refspec) {
  * `_create_anonymous`, which needs a repo) matches binding.ts's doc comment
  * that this is callable with "just a URL", no open repository. Routes
  * through whatever subtransport is registered for the URL's scheme
- * (`tether_register_http_transport`, see transport_shim.c) exactly like
+ * (`halyard_register_http_transport`, see transport_shim.c) exactly like
  * fetch/push do — no separate network path.
  */
 EMSCRIPTEN_KEEPALIVE
-int tether_remote_ls_collect(
+int halyard_remote_ls_collect(
 	const char *url,
 	uint8_t **out_buf,
 	size_t *out_count) {
@@ -463,7 +463,7 @@ int tether_remote_ls_collect(
  * ---------------------------------------------------------------------------
  */
 EMSCRIPTEN_KEEPALIVE
-int tether_merge_commits_opts(
+int halyard_merge_commits_opts(
 	git_index **out,
 	git_repository *repo,
 	const git_commit *ours,
@@ -510,7 +510,7 @@ int tether_merge_commits_opts(
  * conflict case.
  */
 EMSCRIPTEN_KEEPALIVE
-int tether_merge_conflict_paths_collect(
+int halyard_merge_conflict_paths_collect(
 	git_index *index,
 	uint8_t **out_buf,
 	size_t *out_count) {
@@ -590,7 +590,7 @@ int tether_merge_conflict_paths_collect(
  * a *different* index than the one `git_attr_get` itself consults.
  */
 EMSCRIPTEN_KEEPALIVE
-int tether_list_paths_with_attribute(
+int halyard_list_paths_with_attribute(
 	git_repository *repo,
 	git_index *index,
 	const char *attr_name,
@@ -631,7 +631,7 @@ int tether_list_paths_with_attribute(
 }
 
 EMSCRIPTEN_KEEPALIVE
-int tether_list_refs_with_glob(
+int halyard_list_refs_with_glob(
 	git_repository *repo,
 	const char *glob,
 	uint8_t **out_buf,
