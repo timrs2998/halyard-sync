@@ -172,6 +172,24 @@ sed -i \
 #                               they would on a real OS.
 #
 CMAKE_BUILD_DIR="$WORKDIR/libgit2-build"
+# A CMake build tree records the absolute paths it was configured with, and
+# refuses to be reused from anywhere else ("The current CMakeCache.txt
+# directory ... is different than the directory ... where CMakeCache.txt was
+# created"). That is not hypothetical: the work tree is a CI cache restored by
+# prefix, so it outlives the path it was built at — renaming the repository
+# moved the runner workspace from /__w/tether-sync/tether-sync to
+# /__w/halyard-sync/halyard-sync and every rebuild failed on the stale cache,
+# with no way to recover on its own (the job died before the cache-save step,
+# so the bad tree was handed to the next run too). Emscripten self-heals here
+# ("config changed, clearing cache"); CMake does not, so do it for it.
+if [ -f "$CMAKE_BUILD_DIR/CMakeCache.txt" ]; then
+	cached_src="$(sed -n 's/^CMAKE_HOME_DIRECTORY:INTERNAL=//p' "$CMAKE_BUILD_DIR/CMakeCache.txt")"
+	if [ "$cached_src" != "$LIBGIT2_DIR" ]; then
+		echo "note: cached CMake tree was configured for '$cached_src', not"
+		echo "      '$LIBGIT2_DIR' — discarding it and reconfiguring."
+		rm -rf "$CMAKE_BUILD_DIR"
+	fi
+fi
 mkdir -p "$CMAKE_BUILD_DIR"
 (
 	cd "$CMAKE_BUILD_DIR"
