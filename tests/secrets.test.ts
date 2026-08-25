@@ -111,17 +111,6 @@ describe("SecretStore", () => {
 			"halyard-sync-gitlab-example-com-8443"
 		);
 	});
-
-	it("migrates a legacy colon-keyed fallback token on next write", async () => {
-		const fallback = memoryFallback({ "tether-sync:github.com": "old-tok" });
-		const store = new SecretStore(null, fallback.persistence);
-
-		await expect(store.getToken("github.com")).resolves.toBe("old-tok");
-
-		await store.setToken("github.com", "new-tok");
-		expect(fallback.data["tether-sync:github.com"]).toBeUndefined();
-		expect(fallback.data[secretKeyForHost("github.com")]).toBe("new-tok");
-	});
 });
 
 // ---------------------------------------------------------------------------

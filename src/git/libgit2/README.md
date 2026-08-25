@@ -24,10 +24,9 @@ the TypeScript build checks the strings against it — `ccall` resolves by name
 at runtime. So renaming any of them is only half a change until `build.sh` has
 re-run and the rebuilt `dist/` is committed alongside it, in the same commit.
 
-This is not theoretical: these names were `tether_*` until the plugin was
-renamed, and they had to stay that way for exactly one commit — the rename
-shipped first, and the ABI followed only when there was a rebuilt artifact to
-go with it.
+This is not theoretical: the plugin's last rename had to leave the old ABI
+names in place for exactly one commit — the rename shipped first, and the ABI
+followed only when there was a rebuilt artifact to go with it.
 
 ## Files
 

@@ -63,14 +63,6 @@ export interface FallbackSecretPersistence {
 }
 
 const KEY_PREFIX = "halyard-sync-";
-/** Pre-fix key shape (colons, dots — invalid once a real host hits
- * `app.secretStorage`, whose `setSecret` only accepts a "lowercase
- * alphanumeric ID with optional dashes" and throws otherwise). Still checked
- * on read for the insecure data.json fallback, which had no such
- * restriction and may hold tokens saved under the old shape. Keeps the
- * pre-rename "tether-sync" brand deliberately: that is the literal prefix
- * those old entries were written with, so renaming it would strand them. */
-const LEGACY_KEY_PREFIX = "tether-sync:";
 
 /** `app.secretStorage.setSecret` requires a lowercase-alphanumeric-plus-
  * dashes ID — a real host ("github.com", "gitlab.example.com:8443") fails
@@ -82,10 +74,6 @@ function sanitizeSecretId(raw: string): string {
 
 export function secretKeyForHost(host: string): string {
 	return `${KEY_PREFIX}${sanitizeSecretId(host)}`;
-}
-
-function legacySecretKeyForHost(host: string): string {
-	return `${LEGACY_KEY_PREFIX}${host}`;
 }
 
 export class SecretStore {
@@ -103,7 +91,7 @@ export class SecretStore {
 		const key = secretKeyForHost(host);
 		if (this.storage !== null) return this.storage.getSecret(key);
 		const secrets = await this.fallback.load();
-		const value = secrets[key] ?? secrets[legacySecretKeyForHost(host)];
+		const value = secrets[key];
 		return typeof value === "string" && value.length > 0 ? value : null;
 	}
 
@@ -114,7 +102,6 @@ export class SecretStore {
 			return;
 		}
 		const secrets = { ...(await this.fallback.load()) };
-		delete secrets[legacySecretKeyForHost(host)];
 		secrets[key] = token;
 		await this.fallback.save(secrets);
 	}
@@ -127,7 +114,6 @@ export class SecretStore {
 		}
 		const secrets = { ...(await this.fallback.load()) };
 		delete secrets[key];
-		delete secrets[legacySecretKeyForHost(host)];
 		await this.fallback.save(secrets);
 	}
 }
@@ -147,15 +133,9 @@ export interface GitCryptKeyMaterial {
 }
 
 const GITCRYPT_KEY_PREFIX = "halyard-sync-gitcrypt-";
-/** See `LEGACY_KEY_PREFIX` above — same pre-fix shape, same fallback-only read. */
-const LEGACY_GITCRYPT_KEY_PREFIX = "tether-sync:gitcrypt:";
 
 export function gitCryptKeyStorageKey(host: string): string {
 	return `${GITCRYPT_KEY_PREFIX}${sanitizeSecretId(host)}`;
-}
-
-function legacyGitCryptKeyStorageKey(host: string): string {
-	return `${LEGACY_GITCRYPT_KEY_PREFIX}${host}`;
 }
 
 /** Wire encoding of one key entry (base64 of the raw bytes). */
@@ -257,7 +237,7 @@ export class GitCryptKeyStore {
 			raw = await this.storage.getSecret(key);
 		} else {
 			const secrets = await this.fallback.load();
-			raw = secrets[key] ?? secrets[legacyGitCryptKeyStorageKey(host)] ?? null;
+			raw = secrets[key] ?? null;
 		}
 		return raw !== null && raw.length > 0 ? decodeGitCryptKeyMap(raw) : new Map();
 	}
@@ -271,7 +251,6 @@ export class GitCryptKeyStore {
 			}
 			const secrets = { ...(await this.fallback.load()) };
 			delete secrets[key];
-			delete secrets[legacyGitCryptKeyStorageKey(host)];
 			await this.fallback.save(secrets);
 			return;
 		}
@@ -281,7 +260,6 @@ export class GitCryptKeyStore {
 			return;
 		}
 		const secrets = { ...(await this.fallback.load()) };
-		delete secrets[legacyGitCryptKeyStorageKey(host)];
 		secrets[key] = encoded;
 		await this.fallback.save(secrets);
 	}

@@ -105,7 +105,7 @@
  * (`.gitattributes`: "secrets/(asterisk) filter=git-crypt-secrets"), and
  * there is no way to write a single attribute clause matching both
  * `"git-crypt"` and every `"git-crypt-<name>"` value via libgit2's `=value`
- * exact-match form. **Fix**: `TETHER_GITCRYPT_ATTRIBUTES` below is the BARE
+ * exact-match form. **Fix**: `HALYARD_GITCRYPT_ATTRIBUTES` below is the BARE
  * clause `"filter"` (no `=value`), which — per the above — means libgit2
  * calls `check()` for literally every path in the repo (not just git-crypt
  * ones), handing over whatever that path's resolved `filter` attribute value
@@ -311,18 +311,18 @@ static void stream_free(git_writestream *stream) {
  * not "compile-time constant" the way it does in C++) -- a real compiler
  * error found on the first actual build:
  * "error: initializer element is not a compile-time constant". */
-#define TETHER_GITCRYPT_ATTRIBUTES "filter"
+#define HALYARD_GITCRYPT_ATTRIBUTES "filter"
 /* The unnamed-key attribute value exactly, and the named-key value prefix —
- * distinct from TETHER_GITCRYPT_FILTER_NAME below, which is the name this
+ * distinct from HALYARD_GITCRYPT_FILTER_NAME below, which is the name this
  * filter is REGISTERED under with libgit2 (git_filter_register), not an
  * attribute value. */
-#define TETHER_GITCRYPT_ATTR_VALUE "git-crypt"
-#define TETHER_GITCRYPT_NAMED_KEY_PREFIX "git-crypt-"
-static const char *TETHER_GITCRYPT_FILTER_NAME = "git-crypt";
+#define HALYARD_GITCRYPT_ATTR_VALUE "git-crypt"
+#define HALYARD_GITCRYPT_NAMED_KEY_PREFIX "git-crypt-"
+static const char *HALYARD_GITCRYPT_FILTER_NAME = "git-crypt";
 /* Matches libgit2's own attribute-driven filter drivers' priority (see the
  * file header's priority note) — a named constant here rather than a bare
  * "200" so the rationale travels with the value. */
-#define TETHER_GITCRYPT_PRIORITY 200
+#define HALYARD_GITCRYPT_PRIORITY 200
 
 static int filter_check(
 	git_filter *self,
@@ -331,11 +331,11 @@ static int filter_check(
 	const char **attr_values) {
 	const char *value;
 	const char *key_name;
-	const size_t prefix_len = sizeof(TETHER_GITCRYPT_NAMED_KEY_PREFIX) - 1;
+	const size_t prefix_len = sizeof(HALYARD_GITCRYPT_NAMED_KEY_PREFIX) - 1;
 	(void)self;
 	(void)src;
 	/* attr_values[0] corresponds to the single bare "filter" clause in
-	 * TETHER_GITCRYPT_ATTRIBUTES above -- since that clause has no `=value`,
+	 * HALYARD_GITCRYPT_ATTRIBUTES above -- since that clause has no `=value`,
 	 * libgit2 calls check() for EVERY path (see the ATTRIBUTES note in the
 	 * file header), handing back whatever that path's resolved `filter`
 	 * attribute value actually is: NULL (no filter attribute at all), the
@@ -349,9 +349,9 @@ static int filter_check(
 		return GIT_PASSTHROUGH;
 	}
 	value = attr_values[0];
-	if (strcmp(value, TETHER_GITCRYPT_ATTR_VALUE) == 0) {
+	if (strcmp(value, HALYARD_GITCRYPT_ATTR_VALUE) == 0) {
 		key_name = ""; /* the default/unnamed key */
-	} else if (strncmp(value, TETHER_GITCRYPT_NAMED_KEY_PREFIX, prefix_len) == 0) {
+	} else if (strncmp(value, HALYARD_GITCRYPT_NAMED_KEY_PREFIX, prefix_len) == 0) {
 		key_name = value + prefix_len; /* everything after "git-crypt-" */
 	} else {
 		return GIT_PASSTHROUGH;
@@ -399,7 +399,7 @@ static void filter_cleanup(git_filter *self, void *payload) {
 
 static git_filter halyard_gitcrypt_filter = {
 	GIT_FILTER_VERSION,
-	TETHER_GITCRYPT_ATTRIBUTES,
+	HALYARD_GITCRYPT_ATTRIBUTES,
 	NULL, /* initialize: no per-registration setup needed */
 	NULL, /* shutdown: no per-registration teardown needed */
 	filter_check,
@@ -421,12 +421,12 @@ static git_filter halyard_gitcrypt_filter = {
 EMSCRIPTEN_KEEPALIVE
 int halyard_register_gitcrypt_filter(void) {
 	return git_filter_register(
-		TETHER_GITCRYPT_FILTER_NAME,
+		HALYARD_GITCRYPT_FILTER_NAME,
 		&halyard_gitcrypt_filter,
-		TETHER_GITCRYPT_PRIORITY);
+		HALYARD_GITCRYPT_PRIORITY);
 }
 
 EMSCRIPTEN_KEEPALIVE
 int halyard_unregister_gitcrypt_filter(void) {
-	return git_filter_unregister(TETHER_GITCRYPT_FILTER_NAME);
+	return git_filter_unregister(HALYARD_GITCRYPT_FILTER_NAME);
 }
