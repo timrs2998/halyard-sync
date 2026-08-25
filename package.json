@@ -1,6 +1,6 @@
 {
 	"name": "halyard-sync",
-	"version": "0.2.0",
+	"version": "0.2.1",
 	"description": "Sync an Obsidian vault with a git repository over HTTPS on desktop and mobile.",
 	"main": "main.js",
 	"scripts": {
