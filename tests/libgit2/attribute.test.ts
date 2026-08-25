@@ -42,7 +42,7 @@ describe.skipIf(factory === null)(
 	"engine.ts Libgit2Repository.listPathsWithAttribute() (real, against the compiled module)",
 	() => {
 		it("returns exactly the paths whose gitattributes-resolved value matches, not a blanket match", async () => {
-			const dir = mkdtempSync(join(tmpdir(), "tether-attr-"));
+			const dir = mkdtempSync(join(tmpdir(), "halyard-attr-"));
 			const Module = await freshModule(dir);
 			const git2 = await wrapLibgit2Module(Module, { requestUrl: unusedRequestUrl });
 			const repo = await git2.init({ dir: "/repo", defaultBranch: "main" });
@@ -82,7 +82,7 @@ describe.skipIf(factory === null)(
 		});
 
 		it("an empty repo (no .gitattributes at all) returns no matches", async () => {
-			const dir = mkdtempSync(join(tmpdir(), "tether-attr-empty-"));
+			const dir = mkdtempSync(join(tmpdir(), "halyard-attr-empty-"));
 			const Module = await freshModule(dir);
 			const git2 = await wrapLibgit2Module(Module, { requestUrl: unusedRequestUrl });
 			const repo = await git2.init({ dir: "/repo", defaultBranch: "main" });

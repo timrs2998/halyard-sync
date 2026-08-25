@@ -40,7 +40,7 @@ WORKDIR="${WORKDIR:-$HERE/.build-work}"
 DIST="$HERE/dist"
 JOBS="${JOBS:-$(command -v nproc >/dev/null 2>&1 && nproc || echo 4)}"
 
-echo "== tether-sync libgit2-wasm build =="
+echo "== halyard-sync libgit2-wasm build =="
 echo "libgit2:  $LIBGIT2_REF"
 echo "emsdk:    $EMSDK_VERSION"
 echo "workdir:  $WORKDIR"

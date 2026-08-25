@@ -250,12 +250,12 @@ export function describeUnsupportedFilters(filters: string[]): string {
 	const names = filters.join(", ");
 	const hint = filters.includes("lfs") ? " This looks like Git LFS." : "";
 	return (
-		`This repository declares a gitattributes content filter Tether Sync ` +
-		`cannot run (${names}).${hint} Tether Sync has no native git and cannot ` +
+		`This repository declares a gitattributes content filter Halyard Sync ` +
+		`cannot run (${names}).${hint} Halyard Sync has no native git and cannot ` +
 		"decrypt or transform file content the way a real git client would — it " +
 		"would read and write the raw filtered bytes as-is (for an encrypting " +
 		"filter, that means committing PLAINTEXT into what should stay " +
-		"encrypted). Do not use Tether Sync with this repository. Auto-sync has " +
+		"encrypted). Do not use Halyard Sync with this repository. Auto-sync has " +
 		"been paused."
 	);
 }
@@ -279,7 +279,7 @@ export function describeGitCryptLocked(missingKeyNames: string[]): string {
 		`can't be synced until ${pronoun} imported — files using keys you already ` +
 		"have are unaffected once every key is present, but until then the whole " +
 		"repository is paused (no partial sync of some files while others wait). " +
-		"Import the missing key(s) in Tether Sync's settings (Encryption section) " +
+		"Import the missing key(s) in Halyard Sync's settings (Encryption section) " +
 		"to unlock syncing. Nothing has been committed or pushed unencrypted."
 	);
 }
@@ -392,7 +392,7 @@ export function describeGitError(err: unknown): string {
 			return "Repository not found — check the URL and that your token has access.";
 		}
 		if (/unsupported url protocol/i.test(message)) {
-			return "This repository's remote is configured for SSH, which Tether Sync " +
+			return "This repository's remote is configured for SSH, which Halyard Sync " +
 				"can't use (no SSH transport on mobile) — open the setup wizard and " +
 				"re-enter the HTTPS URL to fix it.";
 		}
@@ -488,7 +488,7 @@ export interface GitEngineOptions {
 	remote?: string;
 	ignoreGlobs?: string[];
 	/** Vault-relative path to the calling plugin's own `data.json` (e.g.
-	 * `.obsidian/plugins/tether-sync/data.json`), always ignored in addition
+	 * `.obsidian/plugins/halyard-sync/data.json`), always ignored in addition
 	 * to `defaultIgnores` and `ignoreGlobs`. This can't just be folded into
 	 * `ignoreGlobs`/`defaultIgnores`: the plugin rewrites its own data.json
 	 * on every sync (lastSyncAt, rolling history — see `main.ts`'s
@@ -510,7 +510,7 @@ export interface GitEngineOptions {
 	 * register the native git-crypt filter's multi-key dispatch. Empty map
 	 * (or undefined) means no keys configured at all. */
 	getGitCryptKeys?: () => Promise<Map<string, GitCryptKeyMaterial>>;
-	/** See `TetherSyncSettings.autoMergeOverlappingEdits`'s doc comment — off
+	/** See `HalyardSyncSettings.autoMergeOverlappingEdits`'s doc comment — off
 	 * (`"normal"` favor, real conflicts reported) unless explicitly set. */
 	autoMergeOverlappingEdits?: boolean;
 }
@@ -616,16 +616,16 @@ export class GitEngine {
 	/**
 	 * A dedicated remote name, NOT "origin" — this plugin never wants to
 	 * touch a remote the user manages with their own git tooling. A vault
-	 * can predate Tether Sync entirely (already `git clone`d by hand, often
+	 * can predate Halyard Sync entirely (already `git clone`d by hand, often
 	 * over SSH, with its own `origin` the user's own scripts/CLI still rely
-	 * on); this plugin adds and exclusively owns "tether-sync" instead,
-	 * fetching/pushing/tracking refs there (`refs/remotes/tether-sync/*`)
+	 * on); this plugin adds and exclusively owns "halyard-sync" instead,
+	 * fetching/pushing/tracking refs there (`refs/remotes/halyard-sync/*`)
 	 * and leaving "origin" (or any other remote) completely untouched. This
 	 * is also what makes `ensureRemote`'s force-overwrite safe: it only ever
 	 * force-overwrites a remote name this plugin itself created.
 	 */
 	private get remote(): string {
-		return this.opts.remote ?? "tether-sync";
+		return this.opts.remote ?? "halyard-sync";
 	}
 
 	private assertOpen(): void {
@@ -725,16 +725,16 @@ export class GitEngine {
 	}
 
 	/**
-	 * Force this plugin's OWN remote's ("tether-sync", see the `remote`
+	 * Force this plugin's OWN remote's ("halyard-sync", see the `remote`
 	 * getter above) URL to `url` — idempotent, local-only (one
 	 * `git_remote_set_url` call if the remote already exists, else a fresh
 	 * `git_remote_create`, no network access). Safe to force-overwrite
-	 * precisely because "tether-sync" is a name only this plugin ever
+	 * precisely because "halyard-sync" is a name only this plugin ever
 	 * creates — never "origin" or anything else the user's own git tooling
 	 * might rely on. Needed because `ensureRepo()` happily opens a `.git`
 	 * that predates this plugin's involvement (or whose wizard run got
 	 * interrupted after step 1 saved `settings.remoteUrl` but before
-	 * step 3's clone/init ever created "tether-sync"), and in that case
+	 * step 3's clone/init ever created "halyard-sync"), and in that case
 	 * nothing else reconciles the remote against `settings.remoteUrl`.
 	 * Without this, every subsequent fetch/push/listRemoteRef would either
 	 * find no such remote at all, or use a stale URL, and fail deep in
@@ -938,7 +938,7 @@ export class GitEngine {
 	 *
 	 * When `autoMergeOverlappingEdits` is on, passes `favor: "union"`
 	 * through — an overlapping hunk is then never reported as a conflict at
-	 * all (see `TetherSyncSettings.autoMergeOverlappingEdits`'s doc comment
+	 * all (see `HalyardSyncSettings.autoMergeOverlappingEdits`'s doc comment
 	 * for what that actually does and why it's opt-in).
 	 */
 	async mergeUpstream(branch: string): Promise<MergeOutcome> {

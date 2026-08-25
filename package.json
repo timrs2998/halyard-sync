@@ -1,5 +1,5 @@
 {
-	"name": "tether-sync",
+	"name": "halyard-sync",
 	"version": "0.1.8",
 	"description": "Sync an Obsidian vault with a git repository over HTTPS on desktop and mobile.",
 	"main": "main.js",

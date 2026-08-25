@@ -82,7 +82,7 @@ describe("buildSyncPanelViewModel", () => {
 		for (const state of ["idle", "conflict", "error", "blocked", "locked"] as const) {
 			const unconfigured = buildSyncPanelViewModel(event({ state }), [], 0, null, false, "unconfigured");
 			expect(unconfigured.primaryAction).toBe("setup");
-			expect(unconfigured.headline).toBe("⚙ set up Tether Sync");
+			expect(unconfigured.headline).toBe("⚙ set up Halyard Sync");
 			expect(unconfigured.setupButtonText).toBe("Run setup wizard");
 
 			const incomplete = buildSyncPanelViewModel(event({ state }), [], 0, null, false, "incomplete");

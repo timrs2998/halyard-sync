@@ -71,7 +71,7 @@ const AUTHOR = { name: "Test", email: "test@example.com" };
 
 describe.skipIf(factory === null)("engine.ts Libgit2Module/Libgit2Repository (real, against the compiled module)", () => {
 	it("init, addRemote, setConfig/getConfig", async () => {
-		const dir = mkdtempSync(join(tmpdir(), "tether-engine-init-"));
+		const dir = mkdtempSync(join(tmpdir(), "halyard-engine-init-"));
 		const Module = await freshModule(dir);
 		const git2 = await wrapLibgit2Module(Module, { requestUrl: realFetchRequestUrl });
 
@@ -94,7 +94,7 @@ describe.skipIf(factory === null)("engine.ts Libgit2Module/Libgit2Repository (re
 	});
 
 	it("addRemote with force re-points an existing remote's URL", async () => {
-		const dir = mkdtempSync(join(tmpdir(), "tether-engine-remote-force-"));
+		const dir = mkdtempSync(join(tmpdir(), "halyard-engine-remote-force-"));
 		const Module = await freshModule(dir);
 		const git2 = await wrapLibgit2Module(Module, { requestUrl: realFetchRequestUrl });
 		const repo = await git2.init({ dir: "/repo" });
@@ -108,7 +108,7 @@ describe.skipIf(factory === null)("engine.ts Libgit2Module/Libgit2Repository (re
 	});
 
 	it("stagePath + commit, then commit() again with no changes returns null", async () => {
-		const dir = mkdtempSync(join(tmpdir(), "tether-engine-commit-"));
+		const dir = mkdtempSync(join(tmpdir(), "halyard-engine-commit-"));
 		writeFileSync(join(dir, "a.txt"), "hello world\n", "utf8");
 		const Module = await freshModule(dir);
 		const git2 = await wrapLibgit2Module(Module, { requestUrl: realFetchRequestUrl });
@@ -129,7 +129,7 @@ describe.skipIf(factory === null)("engine.ts Libgit2Module/Libgit2Repository (re
 	});
 
 	it("resolveRef, currentBranch, writeRef, log, findMergeBase", async () => {
-		const dir = mkdtempSync(join(tmpdir(), "tether-engine-refs-"));
+		const dir = mkdtempSync(join(tmpdir(), "halyard-engine-refs-"));
 		writeFileSync(join(dir, "a.txt"), "one\n", "utf8");
 		const Module = await freshModule(dir);
 		const git2 = await wrapLibgit2Module(Module, { requestUrl: realFetchRequestUrl });
@@ -170,7 +170,7 @@ describe.skipIf(factory === null)("engine.ts Libgit2Module/Libgit2Repository (re
 	});
 
 	it("readBlob resolves (commit, path) to the blob's raw content", async () => {
-		const dir = mkdtempSync(join(tmpdir(), "tether-engine-readblob-"));
+		const dir = mkdtempSync(join(tmpdir(), "halyard-engine-readblob-"));
 		writeFileSync(join(dir, "notes.md"), "# Title\ncontent\n", "utf8");
 		const Module = await freshModule(dir);
 		const git2 = await wrapLibgit2Module(Module, { requestUrl: realFetchRequestUrl });
@@ -188,7 +188,7 @@ describe.skipIf(factory === null)("engine.ts Libgit2Module/Libgit2Repository (re
 	});
 
 	it("writeBlobAndStageOid stages an oid directly without a working-tree read", async () => {
-		const dir = mkdtempSync(join(tmpdir(), "tether-engine-writeblob-"));
+		const dir = mkdtempSync(join(tmpdir(), "halyard-engine-writeblob-"));
 		const Module = await freshModule(dir);
 		const git2 = await wrapLibgit2Module(Module, { requestUrl: realFetchRequestUrl });
 		const repo = await git2.init({ dir: "/repo", defaultBranch: "main" });
@@ -211,7 +211,7 @@ describe.skipIf(factory === null)("engine.ts Libgit2Module/Libgit2Repository (re
 	});
 
 	it("status reports untracked, staged, and modified files with the right raw flags", async () => {
-		const dir = mkdtempSync(join(tmpdir(), "tether-engine-status-"));
+		const dir = mkdtempSync(join(tmpdir(), "halyard-engine-status-"));
 		writeFileSync(join(dir, "committed.txt"), "v1\n", "utf8");
 		const Module = await freshModule(dir);
 		const git2 = await wrapLibgit2Module(Module, { requestUrl: realFetchRequestUrl });
@@ -242,7 +242,7 @@ describe.skipIf(factory === null)("engine.ts Libgit2Module/Libgit2Repository (re
 	});
 
 	it("checkout force-resets a modified working-tree file back to HEAD", async () => {
-		const dir = mkdtempSync(join(tmpdir(), "tether-engine-checkout-"));
+		const dir = mkdtempSync(join(tmpdir(), "halyard-engine-checkout-"));
 		writeFileSync(join(dir, "a.txt"), "original\n", "utf8");
 		const Module = await freshModule(dir);
 		const git2 = await wrapLibgit2Module(Module, { requestUrl: realFetchRequestUrl });
@@ -264,7 +264,7 @@ describe.skipIf(factory === null)("engine.ts Libgit2Module/Libgit2Repository (re
 	});
 
 	it("close() is idempotent and further calls throw", async () => {
-		const dir = mkdtempSync(join(tmpdir(), "tether-engine-close-"));
+		const dir = mkdtempSync(join(tmpdir(), "halyard-engine-close-"));
 		const Module = await freshModule(dir);
 		const git2 = await wrapLibgit2Module(Module, { requestUrl: realFetchRequestUrl });
 		const repo: Libgit2Repository = await git2.init({ dir: "/repo" });
@@ -275,9 +275,9 @@ describe.skipIf(factory === null)("engine.ts Libgit2Module/Libgit2Repository (re
 	});
 
 	it("fetch() over a real local smart-HTTP server updates remote-tracking refs", async () => {
-		const serverRoot = mkdtempSync(join(tmpdir(), "tether-engine-fetch-server-"));
+		const serverRoot = mkdtempSync(join(tmpdir(), "halyard-engine-fetch-server-"));
 		git(["init", "--quiet", "--bare", "repo.git"], serverRoot);
-		const workDir = mkdtempSync(join(tmpdir(), "tether-engine-fetch-seed-"));
+		const workDir = mkdtempSync(join(tmpdir(), "halyard-engine-fetch-seed-"));
 		git(["clone", "--quiet", join(serverRoot, "repo.git"), workDir], tmpdir());
 		writeFileSync(join(workDir, "file.txt"), "seeded\n", "utf8");
 		git(["add", "file.txt"], workDir);
@@ -289,7 +289,7 @@ describe.skipIf(factory === null)("engine.ts Libgit2Module/Libgit2Repository (re
 
 		const server = await startGitHttpBackend(serverRoot, "repo.git");
 		try {
-			const dir = mkdtempSync(join(tmpdir(), "tether-engine-fetch-client-"));
+			const dir = mkdtempSync(join(tmpdir(), "halyard-engine-fetch-client-"));
 			const Module = await freshModule(dir);
 			const git2 = await wrapLibgit2Module(Module, { requestUrl: realFetchRequestUrl });
 			const repo = await git2.init({ dir: "/repo" });
@@ -322,7 +322,7 @@ describe.skipIf(factory === null)("engine.ts Libgit2Module/Libgit2Repository (re
 		// pending — never resolving, never rejecting. This test hanging
 		// past its timeout is exactly what a regression back to that bug
 		// would look like.
-		const dir = mkdtempSync(join(tmpdir(), "tether-engine-fetch-reject-client-"));
+		const dir = mkdtempSync(join(tmpdir(), "halyard-engine-fetch-reject-client-"));
 		const Module = await freshModule(dir);
 		const rejectingRequestUrl: RequestUrlLike = async () => {
 			throw new Error("net::ERR_CONNECTION_CLOSED");
@@ -337,7 +337,7 @@ describe.skipIf(factory === null)("engine.ts Libgit2Module/Libgit2Repository (re
 	}, 10_000);
 
 	it("listRemoteRefs() surfaces a rejected requestUrl as a real error instead of hanging forever", async () => {
-		const dir = mkdtempSync(join(tmpdir(), "tether-engine-lsremote-reject-client-"));
+		const dir = mkdtempSync(join(tmpdir(), "halyard-engine-lsremote-reject-client-"));
 		const Module = await freshModule(dir);
 		const rejectingRequestUrl: RequestUrlLike = async () => {
 			throw new Error("net::ERR_CONNECTION_CLOSED");
@@ -357,7 +357,7 @@ describe.skipIf(factory === null)("engine.ts Libgit2Module/Libgit2Repository (re
 		// pkt-line parser, which failed deep inside with an opaque "error
 		// parsing REF pkt-line" — see `installHttpDispatch`'s wiring of
 		// `validateSmartHttpResponse` in engine.ts.
-		const dir = mkdtempSync(join(tmpdir(), "tether-engine-lsremote-badcontenttype-client-"));
+		const dir = mkdtempSync(join(tmpdir(), "halyard-engine-lsremote-badcontenttype-client-"));
 		const Module = await freshModule(dir);
 		const htmlPageRequestUrl: RequestUrlLike = async () => ({
 			status: 200,
@@ -372,9 +372,9 @@ describe.skipIf(factory === null)("engine.ts Libgit2Module/Libgit2Repository (re
 	}, 10_000);
 
 	it("clone() fetches and checks out the default branch", async () => {
-		const serverRoot = mkdtempSync(join(tmpdir(), "tether-engine-clone-server-"));
+		const serverRoot = mkdtempSync(join(tmpdir(), "halyard-engine-clone-server-"));
 		git(["init", "--quiet", "--bare", "repo.git"], serverRoot);
-		const workDir = mkdtempSync(join(tmpdir(), "tether-engine-clone-seed-"));
+		const workDir = mkdtempSync(join(tmpdir(), "halyard-engine-clone-seed-"));
 		git(["clone", "--quiet", join(serverRoot, "repo.git"), workDir], tmpdir());
 		writeFileSync(join(workDir, "readme.md"), "hello from origin\n", "utf8");
 		git(["add", "readme.md"], workDir);
@@ -386,7 +386,7 @@ describe.skipIf(factory === null)("engine.ts Libgit2Module/Libgit2Repository (re
 
 		const server = await startGitHttpBackend(serverRoot, "repo.git");
 		try {
-			const dir = mkdtempSync(join(tmpdir(), "tether-engine-clone-client-"));
+			const dir = mkdtempSync(join(tmpdir(), "halyard-engine-clone-client-"));
 			const Module = await freshModule(dir);
 			const git2 = await wrapLibgit2Module(Module, { requestUrl: realFetchRequestUrl });
 

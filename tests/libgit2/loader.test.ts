@@ -66,7 +66,7 @@ describe.skipIf(!compiledModuleExists)("libgit2/loader.ts (real, against the com
 		// instantiation: init a repo, prove it's a real, usable git_repository.
 		const { mkdtempSync } = await import("node:fs");
 		const { tmpdir } = await import("node:os");
-		const dir = mkdtempSync(join(tmpdir(), "tether-loader-"));
+		const dir = mkdtempSync(join(tmpdir(), "halyard-loader-"));
 		const repo = await git2.init({ dir, defaultBranch: "main" });
 		await repo.setConfig("user.name", "Loader Test");
 		expect(await repo.getConfig("user.name")).toBe("Loader Test");

@@ -31,7 +31,7 @@ describe("describeGitError", () => {
 			-1
 		);
 		expect(describeGitError(err)).toBe(
-			"This repository's remote is configured for SSH, which Tether Sync " +
+			"This repository's remote is configured for SSH, which Halyard Sync " +
 				"can't use (no SSH transport on mobile) — open the setup wizard and " +
 				"re-enter the HTTPS URL to fix it."
 		);

@@ -5,7 +5,7 @@ describe("migrateWorkspaceIgnoreLine", () => {
 	const gitignore = (...lines: string[]) => lines.join("\n") + "\n";
 
 	it("rewrites the hardcoded default prefix to the vault's real config folder", () => {
-		const before = gitignore(".obsidian/workspace*", ".trash/", ".obsidian/plugins/tether-sync/data.json");
+		const before = gitignore(".obsidian/workspace*", ".trash/", ".obsidian/plugins/halyard-sync/data.json");
 		const after = migrateWorkspaceIgnoreLine(before, ".config");
 		expect(after).not.toBeNull();
 		expect(after?.split("\n")).toContain(".config/workspace*");

@@ -22,11 +22,11 @@ async function openSettingsTab(): Promise<void> {
 			}
 		).setting;
 		setting.open();
-		setting.openTabById("tether-sync");
+		setting.openTabById("halyard-sync");
 	});
 	await browser.waitUntil(async () => (await settingNames()).includes("Branch"), {
 		timeout: 10_000,
-		timeoutMsg: "Tether Sync's settings tab did not render its rows",
+		timeoutMsg: "Halyard Sync's settings tab did not render its rows",
 	});
 }
 
@@ -47,7 +47,7 @@ function settingNames(): Promise<string[]> {
 	});
 }
 
-describe("Tether Sync's settings tab", function () {
+describe("Halyard Sync's settings tab", function () {
 	afterEach(async function () {
 		await browser.executeObsidian(({ app }) => {
 			(app as unknown as { setting: { close(): void } }).setting.close();
@@ -103,7 +103,7 @@ describe("Tether Sync's settings tab", function () {
 						>;
 					};
 				}
-			).plugins.plugins["tether-sync"];
+			).plugins.plugins["halyard-sync"];
 			const tab = (
 				app as unknown as {
 					setting: { activeTab?: { setControlValue(key: string, value: unknown): void | Promise<void> } };

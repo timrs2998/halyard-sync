@@ -11,8 +11,8 @@
 # command, including the Windows/Docker Desktop path gotchas — the example
 # below is the Linux/macOS-native shape; on Windows, use Windows-style paths
 # and a named volume for .build-work, not $(pwd)):
-#   docker build -t tether-sync-libgit2-wasm -f build/Dockerfile .    # context is src/git/libgit2, not build/
-#   docker run --rm -v "$(pwd)/build/dist:/work/build/dist" tether-sync-libgit2-wasm
+#   docker build -t halyard-sync-libgit2-wasm -f build/Dockerfile .    # context is src/git/libgit2, not build/
+#   docker run --rm -v "$(pwd)/build/dist:/work/build/dist" halyard-sync-libgit2-wasm
 #
 # The emsdk image already contains a matching emcc/clang/node toolchain for
 # a given tag, which is why this starts FROM it (pinned to the same version

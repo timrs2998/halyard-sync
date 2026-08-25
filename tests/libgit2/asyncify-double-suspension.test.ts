@@ -124,7 +124,7 @@ async function buildServerRepo(
 
 describe.skipIf(factory === null)("Asyncify double-suspension probe (real fetch + real smudge, one call)", () => {
 	it("tether_test_clone_and_checkout: fetch (transport Asyncify) then checkout-smudge (filter Asyncify) in ONE top-level call", async () => {
-		const serverRoot = mkdtempSync(join(tmpdir(), "tether-http-server-"));
+		const serverRoot = mkdtempSync(join(tmpdir(), "halyard-http-server-"));
 		const plaintext = "fetched-over-real-http-then-decrypted-by-the-real-filter\n";
 
 		const aesKey = new Uint8Array(32);
@@ -138,7 +138,7 @@ describe.skipIf(factory === null)("Asyncify double-suspension probe (real fetch 
 		try {
 			const Module = await factory!();
 
-			const destDir = mkdtempSync(join(tmpdir(), "tether-http-client-"));
+			const destDir = mkdtempSync(join(tmpdir(), "halyard-http-client-"));
 			mountHostDir(Module, destDir, "/dest");
 
 			Module.__gitcryptDecrypt = async (_keyName: string, ciphertext: Uint8Array) => {

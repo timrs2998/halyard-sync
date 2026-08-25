@@ -77,7 +77,7 @@ describe("createIgnoreFilter with an ownDataPath-style extra default", () => {
 	// createIgnoreFilter (see engine.ts's `defaultIgnoresFor`) — this exercises
 	// that same merge shape directly against the pure filter function.
 	it("ignores the plugin's own data.json alongside the built-in defaults", () => {
-		const ownDataPath = ".obsidian/plugins/tether-sync/data.json";
+		const ownDataPath = ".obsidian/plugins/halyard-sync/data.json";
 		const isIgnored = createIgnoreFilter([], [...DEFAULTS, ownDataPath]);
 		expect(isIgnored(ownDataPath)).toBe(true);
 		expect(isIgnored(".obsidian/workspace.json")).toBe(true);

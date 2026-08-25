@@ -1,6 +1,6 @@
 {
-	"id": "tether-sync",
-	"name": "Tether Sync",
+	"id": "halyard-sync",
+	"name": "Halyard Sync",
 	"version": "0.1.8",
 	"minAppVersion": "1.13.0",
 	"description": "Sync your vault with a git repository (GitHub, GitLab, Bitbucket, Gitea/Forgejo, Azure DevOps, or any HTTPS host) on desktop and mobile. No native git required.",

@@ -1,4 +1,4 @@
-# Tether Sync — Design
+# Halyard Sync — Design
 
 An Obsidian plugin that syncs a vault with a GitHub/GitLab repository on iOS, Android,
 macOS, and Windows. Fully self-contained: every dependency is bundled into `main.js`;
@@ -332,8 +332,8 @@ the exact conditions and messages. Neither is a filter/encryption concern; both
 catch real git state changing out from under the plugin (a manual `git checkout`
 on the same repo, or a remote branch renamed/deleted upstream).
 
-Commit identity: `name` from settings (default "Tether Sync"), `email` default
-`tether-sync@localhost`. Commit message template `vault sync: {date} ({platform})`.
+Commit identity: `name` from settings (default "Halyard Sync"), `email` default
+`halyard-sync@localhost`. Commit message template `vault sync: {date} ({platform})`.
 
 ### Conflict strategies (user setting, default = PR branch)
 
@@ -437,12 +437,12 @@ consulted (`engine.ts:804`) — it gates what can ever be staged/committed, not
 what a checkout/merge restores, which matters for the guarantee below.
 
 **`registerExternalIgnorePattern(pattern: string): Promise<boolean>`** (public
-method on `TetherSyncPlugin`, `main.ts`) is an integration point other vault
-plugins can feature-detect via `app.plugins.plugins["tether-sync"]` and call to
+method on `HalyardSyncPlugin`, `main.ts`) is an integration point other vault
+plugins can feature-detect via `app.plugins.plugins["halyard-sync"]` and call to
 get their own managed folder/file excluded, without the user having to
 hand-configure `ignoreGlobs` themselves. Additive and idempotent — it only ever
 appends a new pattern, never removes one, since one caller's request is never
-grounds to un-exclude something else. [Tether Fetch](https://github.com/timrs2998/tether-fetch)
+grounds to un-exclude something else. [Halyard Fetch](https://github.com/timrs2998/halyard-fetch)
 is the first (and so far only) consumer: it registers each source's
 destination folder, and its own `data.json` (which can hold plaintext fallback
 tokens when `secretStorage` is unavailable), before that folder is ever
@@ -481,5 +481,5 @@ here given how hard-to-reverse history-rewriting operations are.
   guidance (the compiler's `lib`/`types`-aware checking already does this job
   correctly for ambient globals; the ESLint rule can't see those and false-
   positives on them).
-- `manifest.json`: `id: tether-sync`, `isDesktopOnly: false`,
+- `manifest.json`: `id: halyard-sync`, `isDesktopOnly: false`,
   `minAppVersion: 1.13.0` (see point 6 above for what sets that floor).

@@ -133,7 +133,7 @@ describe.skipIf(factory === null)("GitEngine against the real compiled libgit2 m
 		await engine.close();
 	});
 
-	it("manages its own 'tether-sync' remote by default, never touching a pre-existing 'origin'", async () => {
+	it("manages its own 'halyard-sync' remote by default, never touching a pre-existing 'origin'", async () => {
 		const adapter = new MockAdapter();
 
 		// Simulates a vault the user already had cloned/managed by hand, with
@@ -152,7 +152,7 @@ describe.skipIf(factory === null)("GitEngine against the real compiled libgit2 m
 		await userOwnedEngine.initFromExistingVault({ url: "git@github.com:owner/vault.git" });
 		await userOwnedEngine.close();
 
-		// Tether Sync opens the SAME on-disk repo with its normal (default)
+		// Halyard Sync opens the SAME on-disk repo with its normal (default)
 		// engine config — no explicit `remote` override, same as production.
 		const engine = await makeEngine(adapter);
 		await engine.ensureRemote("https://github.com/owner/vault.git");
@@ -244,7 +244,7 @@ function makeRealRequestUrl(): RequestUrlLike {
  * scaffolding, not something under test).
  */
 async function setupSharedRemote(filepath: string) {
-	const tmpRoot = mkdtempSync(join(tmpdir(), "tether-engine-smoke-"));
+	const tmpRoot = mkdtempSync(join(tmpdir(), "halyard-engine-smoke-"));
 	const bareDir = join(tmpRoot, "remote.git");
 	git(["init", "--bare", "-b", "main", "remote.git"], tmpRoot);
 

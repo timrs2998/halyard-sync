@@ -245,7 +245,7 @@ export interface Libgit2Repository {
 	 * strategy: an overlapping hunk is never a conflict at all, it just
 	 * concatenates both sides' distinct lines into the merged file. A
 	 * `"union"` merge can therefore never produce `MergeOutcome`'s
-	 * `"conflict"` case — see `TetherSyncSettings.autoMergeOverlappingEdits`'s
+	 * `"conflict"` case — see `HalyardSyncSettings.autoMergeOverlappingEdits`'s
 	 * doc comment for why this is opt-in and off by default.
 	 */
 	merge(

@@ -9,6 +9,22 @@ See the top-level [DESIGN.md](../../../DESIGN.md) for the constraints the
 plugin as a whole operates under, and [build/BUILD.md](build/BUILD.md) for how
 to regenerate the compiled module.
 
+## The `tether_*` names here are deliberate
+
+The plugin was renamed from "Tether Sync" to "Halyard Sync", but this directory
+keeps the old brand in three places, on purpose:
+
+- the C ABI symbols (`tether_status_collect`, `tether_remote_fetch`, …) in
+  `native/*.c`, their export list in `build/build.sh`, and every `ccall` that
+  names one from `engine.ts`;
+- the artifact filenames `build/dist/tether-libgit2.{js,node.js,wasm,d.ts}`;
+- the Emscripten `-sEXPORT_NAME=TetherLibgit2` factory name.
+
+These are the exports of the **committed** `.wasm` binary. Renaming them in
+source without re-running `build/build.sh` makes every `ccall` miss and the
+module fail to load, so they can only change in the same commit that rebuilds
+and re-commits the artifact. None of them is user-visible.
+
 ## Files
 
 | File | What it is |

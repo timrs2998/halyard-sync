@@ -1,5 +1,5 @@
 /**
- * Pure view-model for the sync sidebar panel (`sync-view.ts`'s `TetherSyncView`
+ * Pure view-model for the sync sidebar panel (`sync-view.ts`'s `HalyardSyncView`
  * is a thin DOM renderer over this) — deliberately zero `obsidian` imports,
  * same reasoning as `statusbar.ts`'s header comment: the `obsidian` npm
  * package ships types only (no runtime JS), so anything importing it can't

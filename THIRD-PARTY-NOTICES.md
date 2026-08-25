@@ -1,6 +1,6 @@
 # Third-party notices
 
-Tether Sync is MIT-licensed (see [LICENSE](LICENSE)). It ships third-party
+Halyard Sync is MIT-licensed (see [LICENSE](LICENSE)). It ships third-party
 components whose notices are reproduced below.
 
 ## libgit2
@@ -53,7 +53,7 @@ contributors) is bundled as a mobile polyfill for
 
 ## git-crypt
 
-Tether Sync interoperates with [git-crypt](https://github.com/AGWA/git-crypt)'s
+Halyard Sync interoperates with [git-crypt](https://github.com/AGWA/git-crypt)'s
 on-disk format. The implementation in `src/git/gitcrypt.ts` and
 `src/git/libgit2/native/filter_shim.c` was **written from scratch against that
 format**; no git-crypt source code is used, copied, or derived from, and none of

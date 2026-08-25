@@ -35,7 +35,7 @@ interface PatchableNodeOps {
 	[PATCHED]?: boolean;
 }
 
-const PATCHED = Symbol.for("tether.nodefs.ownership-normalized");
+const PATCHED = Symbol.for("halyard.nodefs.ownership-normalized");
 
 /** Creates `mountPoint`, mounts `hostDir` there via NODEFS, normalizes ownership. */
 export function mountHostDir(Module: TestNativeModule, hostDir: string, mountPoint: string): void {

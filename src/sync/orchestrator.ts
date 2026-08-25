@@ -26,7 +26,7 @@ import type { ConflictResult, ConflictStrategyName } from "./conflicts";
  */
 export function describeBranchMismatch(currentBranch: string, expectedBranch: string): string {
 	return (
-		`This vault is checked out to '${currentBranch}', but Tether Sync is ` +
+		`This vault is checked out to '${currentBranch}', but Halyard Sync is ` +
 		`configured to sync '${expectedBranch}' — check out '${expectedBranch}' ` +
 		"again (or update the branch in Settings) to resume."
 	);

@@ -30,9 +30,9 @@ import {
 	SetupWizardModal,
 	type TokenSettingRenderers,
 } from "./ui/modals";
-import type TetherSyncPlugin from "./main";
+import type HalyardSyncPlugin from "./main";
 
-export interface TetherSyncSettings extends ScheduleOptions {
+export interface HalyardSyncSettings extends ScheduleOptions {
 	remoteUrl: string;
 	branch: string;
 	/** Names conflict branches; generated once on first load. */
@@ -79,13 +79,13 @@ export interface TetherSyncSettings extends ScheduleOptions {
 	verboseNetworkLogging: boolean;
 }
 
-export function defaultSettings(isMobile: boolean): TetherSyncSettings {
+export function defaultSettings(isMobile: boolean): HalyardSyncSettings {
 	return {
 		remoteUrl: "",
 		branch: "main",
 		deviceName: "",
-		authorName: "Tether Sync",
-		authorEmail: "tether-sync@localhost",
+		authorName: "Halyard Sync",
+		authorEmail: "halyard-sync@localhost",
 		ignoreGlobs: [],
 		genericUsername: "oauth2",
 		gitlabSelfManagedBase: "",
@@ -121,7 +121,7 @@ const STRATEGY_LABELS: Record<ConflictStrategyName, string> = {
 
 /**
  * Settings keys the declarative controls bind to. Everything else in
- * `TetherSyncSettings` is plugin state rather than a user-facing control
+ * `HalyardSyncSettings` is plugin state rather than a user-facing control
  * (`lastSyncAt`, `syncHistory`, `deviceName`'s generated default, ...).
  */
 type BoundKey =
@@ -150,12 +150,12 @@ type BoundKey =
 /** Text fields that fall back to a fixed value when cleared. */
 const TEXT_FALLBACKS: Partial<Record<BoundKey, string>> = {
 	branch: "main",
-	authorName: "Tether Sync",
-	authorEmail: "tether-sync@localhost",
+	authorName: "Halyard Sync",
+	authorEmail: "halyard-sync@localhost",
 	genericUsername: "oauth2",
 };
 
-export class TetherSyncSettingTab extends PluginSettingTab {
+export class HalyardSyncSettingTab extends PluginSettingTab {
 	/**
 	 * git-crypt checklist state, since `getSettingDefinitions()` is
 	 * synchronous but the checklist needs a repository scan:
@@ -169,7 +169,7 @@ export class TetherSyncSettingTab extends PluginSettingTab {
 	private hasSavedToken = false;
 	private tokenChecked = false;
 
-	constructor(app: App, private readonly plugin: TetherSyncPlugin) {
+	constructor(app: App, private readonly plugin: HalyardSyncPlugin) {
 		super(app, plugin);
 	}
 
@@ -193,7 +193,7 @@ export class TetherSyncSettingTab extends PluginSettingTab {
 	 */
 	getControlValue(key: string): unknown {
 		if (key === "ignoreGlobs") return this.plugin.settings.ignoreGlobs.join("\n");
-		return this.plugin.settings[key as keyof TetherSyncSettings];
+		return this.plugin.settings[key as keyof HalyardSyncSettings];
 	}
 
 	async setControlValue(key: string, value: unknown): Promise<void> {
@@ -379,7 +379,7 @@ export class TetherSyncSettingTab extends PluginSettingTab {
 					"saved in plain text inside the plugin's data.json. Prefer a token " +
 					"with the narrowest possible scope.",
 				render: (setting: Setting) => {
-					setting.settingEl.addClass("tether-sync-warning-banner");
+					setting.settingEl.addClass("halyard-sync-warning-banner");
 				},
 			});
 		}
@@ -442,7 +442,7 @@ export class TetherSyncSettingTab extends PluginSettingTab {
 				this.tokenChecked = false;
 				this.update();
 			},
-			onError: (message) => new Notice(`Tether Sync: ${message}`),
+			onError: (message) => new Notice(`Halyard Sync: ${message}`),
 		});
 		if (!this.tokenChecked) {
 			this.tokenChecked = true;
@@ -530,7 +530,7 @@ export class TetherSyncSettingTab extends PluginSettingTab {
 			{
 				name: "About git-crypt support",
 				desc:
-					"Only relevant if the remote repository uses git-crypt. Tether Sync " +
+					"Only relevant if the remote repository uses git-crypt. Halyard Sync " +
 					"can run git-crypt's clean/smudge filter natively — including " +
 					"per-subtree NAMED keys, not just the default key — once every key " +
 					"the repository references is imported below. A repository is " +
@@ -604,10 +604,10 @@ export class TetherSyncSettingTab extends PluginSettingTab {
 					container: setting.settingEl,
 					plugin: this.plugin,
 					onImported: () => {
-						new Notice("Tether Sync: git-crypt key imported");
+						new Notice("Halyard Sync: git-crypt key imported");
 						this.refreshGitCryptChecklist();
 					},
-					onError: (message) => new Notice(`Tether Sync: ${message}`),
+					onError: (message) => new Notice(`Halyard Sync: ${message}`),
 				});
 			},
 		};

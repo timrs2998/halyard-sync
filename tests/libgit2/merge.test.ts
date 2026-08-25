@@ -57,7 +57,7 @@ const AUTHOR = { name: "Test", email: "test@example.com" };
 
 describe.skipIf(factory === null)("engine.ts Libgit2Repository.merge() (real, against the compiled module)", () => {
 	it("uptodate: theirs is already an ancestor of (or equal to) ours", async () => {
-		const dir = mkdtempSync(join(tmpdir(), "tether-merge-uptodate-"));
+		const dir = mkdtempSync(join(tmpdir(), "halyard-merge-uptodate-"));
 		const Module = await freshModule(dir);
 		const git2 = await wrapLibgit2Module(Module, { requestUrl: unusedRequestUrl });
 		const repo = await git2.init({ dir: "/repo", defaultBranch: "main" });
@@ -75,7 +75,7 @@ describe.skipIf(factory === null)("engine.ts Libgit2Repository.merge() (real, ag
 	});
 
 	it("fastforward: ours is a strict ancestor of theirs", async () => {
-		const dir = mkdtempSync(join(tmpdir(), "tether-merge-ff-"));
+		const dir = mkdtempSync(join(tmpdir(), "halyard-merge-ff-"));
 		const Module = await freshModule(dir);
 		const git2 = await wrapLibgit2Module(Module, { requestUrl: unusedRequestUrl });
 		const repo = await git2.init({ dir: "/repo", defaultBranch: "main" });
@@ -109,7 +109,7 @@ describe.skipIf(factory === null)("engine.ts Libgit2Repository.merge() (real, ag
 	});
 
 	it("merged: a real three-way merge of non-overlapping changes succeeds cleanly", async () => {
-		const dir = mkdtempSync(join(tmpdir(), "tether-merge-clean-"));
+		const dir = mkdtempSync(join(tmpdir(), "halyard-merge-clean-"));
 		const Module = await freshModule(dir);
 		const git2 = await wrapLibgit2Module(Module, { requestUrl: unusedRequestUrl });
 		const repo = await git2.init({ dir: "/repo", defaultBranch: "main" });
@@ -153,7 +153,7 @@ describe.skipIf(factory === null)("engine.ts Libgit2Repository.merge() (real, ag
 	});
 
 	it("conflict: the same file changed incompatibly on both sides — no markers, no ref move, no index write", async () => {
-		const dir = mkdtempSync(join(tmpdir(), "tether-merge-conflict-"));
+		const dir = mkdtempSync(join(tmpdir(), "halyard-merge-conflict-"));
 		const Module = await freshModule(dir);
 		const git2 = await wrapLibgit2Module(Module, { requestUrl: unusedRequestUrl });
 		const repo = await git2.init({ dir: "/repo", defaultBranch: "main" });
@@ -200,7 +200,7 @@ describe.skipIf(factory === null)("engine.ts Libgit2Repository.merge() (real, ag
 	});
 
 	it("favor: 'union' — the same file changed incompatibly on both sides merges cleanly, keeping both lines", async () => {
-		const dir = mkdtempSync(join(tmpdir(), "tether-merge-union-"));
+		const dir = mkdtempSync(join(tmpdir(), "halyard-merge-union-"));
 		const Module = await freshModule(dir);
 		const git2 = await wrapLibgit2Module(Module, { requestUrl: unusedRequestUrl });
 		const repo = await git2.init({ dir: "/repo", defaultBranch: "main" });

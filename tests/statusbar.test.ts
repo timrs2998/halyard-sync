@@ -137,7 +137,7 @@ describe("statusBarView", () => {
 	it("shows a setup prompt overriding everything, including conflict/error, when unconfigured", () => {
 		for (const state of ["idle", "conflict", "error", "blocked", "locked", "staging"] as const) {
 			const view = statusBarView(event({ state, message: "should be ignored" }), 0, false, "unconfigured");
-			expect(view.text).toBe("⚙ set up Tether Sync");
+			expect(view.text).toBe("⚙ set up Halyard Sync");
 			expect(view.tooltip).toContain("setup wizard");
 		}
 	});

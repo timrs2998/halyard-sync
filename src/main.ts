@@ -1,5 +1,5 @@
 /**
- * Tether Sync — plugin entry: wires the git core, auth, orchestrator,
+ * Halyard Sync — plugin entry: wires the git core, auth, orchestrator,
  * scheduler, settings tab, status bar, and commands together.
  */
 
@@ -28,20 +28,20 @@ import { SyncOrchestrator, type OrchestratorEngine } from "./sync/orchestrator";
 import { SyncScheduler } from "./sync/scheduler";
 import {
 	defaultSettings,
-	TetherSyncSettingTab,
-	type TetherSyncSettings,
+	HalyardSyncSettingTab,
+	type HalyardSyncSettings,
 } from "./settings";
-import { registerTetherSyncIcon, TETHER_SYNC_ICON_ID } from "./ui/icon";
+import { registerHalyardSyncIcon, HALYARD_SYNC_ICON_ID } from "./ui/icon";
 import { ConflictModal, SetupWizardModal, SyncHistoryModal } from "./ui/modals";
 import { StatusBarController, statusBarView, type SetupState } from "./ui/statusbar";
-import { TETHER_SYNC_VIEW_TYPE, TetherSyncView } from "./ui/sync-view";
+import { HALYARD_SYNC_VIEW_TYPE, HalyardSyncView } from "./ui/sync-view";
 
 /** data.json shape. `fallbackSecrets` exists only when SecretStorage is unavailable. */
-interface SavedData extends TetherSyncSettings {
+interface SavedData extends HalyardSyncSettings {
 	fallbackSecrets?: Record<string, string>;
 }
 
-/** Outcome of `TetherSyncPlugin.testConnection` — see `ui/modals.ts`. */
+/** Outcome of `HalyardSyncPlugin.testConnection` — see `ui/modals.ts`. */
 export interface TestConnectionResult {
 	/** Every advertised branch, sorted. */
 	branches: string[];
@@ -53,8 +53,8 @@ export interface TestConnectionResult {
 	branch: string;
 }
 
-export default class TetherSyncPlugin extends Plugin {
-	settings!: TetherSyncSettings;
+export default class HalyardSyncPlugin extends Plugin {
+	settings!: HalyardSyncSettings;
 	secretStore!: SecretStore;
 	gitCryptKeyStore!: GitCryptKeyStore;
 	orchestrator!: SyncOrchestrator;
@@ -205,12 +205,12 @@ export default class TetherSyncPlugin extends Plugin {
 			this.statusBar = null;
 		}
 
-		this.registerView(TETHER_SYNC_VIEW_TYPE, (leaf) => new TetherSyncView(leaf, this));
+		this.registerView(HALYARD_SYNC_VIEW_TYPE, (leaf) => new HalyardSyncView(leaf, this));
 
-		registerTetherSyncIcon();
+		registerHalyardSyncIcon();
 		this.setupRibbonIcon();
 
-		this.addSettingTab(new TetherSyncSettingTab(this.app, this));
+		this.addSettingTab(new HalyardSyncSettingTab(this.app, this));
 		this.registerCommands();
 
 		this.app.workspace.onLayoutReady(() => {
@@ -245,7 +245,7 @@ export default class TetherSyncPlugin extends Plugin {
 	 * so the plugin doesn't need a full dedicated pane for occasional actions.
 	 */
 	private setupRibbonIcon(): void {
-		const ribbonEl = this.addRibbonIcon(TETHER_SYNC_ICON_ID, "Tether Sync", () => {
+		const ribbonEl = this.addRibbonIcon(HALYARD_SYNC_ICON_ID, "Halyard Sync", () => {
 			if (this.setupState() !== "ready") {
 				this.openSetupWizard();
 				return;
@@ -254,15 +254,15 @@ export default class TetherSyncPlugin extends Plugin {
 			if (status.state === "conflict") void this.openConflictModal();
 			else this.syncNow();
 		});
-		ribbonEl.addClass("tether-sync-ribbon-icon");
+		ribbonEl.addClass("halyard-sync-ribbon-icon");
 
 		const updateRibbon = () => {
 			const status = this.orchestrator.status;
 			const view = statusBarView(status, Date.now(), this.settings.autoSyncPaused, this.setupState());
-			ribbonEl.setAttribute("aria-label", `Tether Sync: ${view.tooltip}`);
-			ribbonEl.toggleClass("tether-sync-ribbon-attention", status.state === "conflict");
+			ribbonEl.setAttribute("aria-label", `Halyard Sync: ${view.tooltip}`);
+			ribbonEl.toggleClass("halyard-sync-ribbon-attention", status.state === "conflict");
 			ribbonEl.toggleClass(
-				"tether-sync-ribbon-error",
+				"halyard-sync-ribbon-error",
 				status.state === "error" || status.state === "blocked" || status.state === "locked"
 			);
 			// Cord "flows" (see styles.css) during the states statusbar.ts's own
@@ -270,7 +270,7 @@ export default class TetherSyncPlugin extends Plugin {
 			// rather than re-deriving it, since it's the single source of truth
 			// for what counts as "syncing" in the UI.
 			ribbonEl.toggleClass(
-				"tether-sync-ribbon-syncing",
+				"halyard-sync-ribbon-syncing",
 				status.state === "staging" ||
 					status.state === "fetching" ||
 					status.state === "integrating" ||
@@ -284,7 +284,7 @@ export default class TetherSyncPlugin extends Plugin {
 			evt.preventDefault();
 			const menu = new Menu();
 			menu.addItem((item) =>
-				item.setTitle("Sync now").setIcon(TETHER_SYNC_ICON_ID).onClick(() => this.syncNow())
+				item.setTitle("Sync now").setIcon(HALYARD_SYNC_ICON_ID).onClick(() => this.syncNow())
 			);
 			if (this.orchestrator.isConflicted) {
 				menu.addItem((item) =>
@@ -362,11 +362,11 @@ export default class TetherSyncPlugin extends Plugin {
 
 	/**
 	 * Optional integration point for other vault plugins that manage their own
-	 * folder or file and want it excluded from sync (e.g. Tether Fetch's
+	 * folder or file and want it excluded from sync (e.g. Halyard Fetch's
 	 * mirrored destination folders — see that plugin's DESIGN.md "Explode &
 	 * materialize"). Not part of any formal inter-plugin API/contract, just a
 	 * plain method another plugin can feature-detect via
-	 * `app.plugins.plugins["tether-sync"]`.
+	 * `app.plugins.plugins["halyard-sync"]`.
 	 *
 	 * Additive and idempotent only: never removes an existing pattern, since
 	 * one caller asking to exclude a path is never grounds to stop excluding
@@ -409,7 +409,7 @@ export default class TetherSyncPlugin extends Plugin {
 			const outcome =
 				entry.error !== null ? `FAILED: ${entry.error}` : `${entry.status}`;
 			console.debug(
-				`[Tether Sync] ${entry.method} ${entry.url} -> ${outcome} (${entry.durationMs}ms)`
+				`[Halyard Sync] ${entry.method} ${entry.url} -> ${outcome} (${entry.durationMs}ms)`
 			);
 		});
 	}
@@ -701,7 +701,7 @@ export default class TetherSyncPlugin extends Plugin {
 
 	syncNow(): void {
 		if (!this.isConfigured()) {
-			new Notice("Tether Sync: not configured yet — opening the setup wizard.");
+			new Notice("Halyard Sync: not configured yet — opening the setup wizard.");
 			this.openSetupWizard();
 			return;
 		}
@@ -712,7 +712,7 @@ export default class TetherSyncPlugin extends Plugin {
 				// check, a manual sync in that window hit a raw "no such .git"
 				// error instead of a clear message.
 				new Notice(
-					"Tether Sync: setup isn't finished — finish the wizard's clone/initialize step first."
+					"Halyard Sync: setup isn't finished — finish the wizard's clone/initialize step first."
 				);
 				return;
 			}
@@ -726,13 +726,13 @@ export default class TetherSyncPlugin extends Plugin {
 
 	/** Reveals the right-sidebar sync panel, creating it if it doesn't exist yet. */
 	async activateSyncView(): Promise<void> {
-		await this.app.workspace.ensureSideLeaf(TETHER_SYNC_VIEW_TYPE, "right", { reveal: true });
+		await this.app.workspace.ensureSideLeaf(HALYARD_SYNC_VIEW_TYPE, "right", { reveal: true });
 	}
 
 	async openConflictModal(): Promise<void> {
 		const status = this.orchestrator.status;
 		if (status.state !== "conflict") {
-			new Notice("Tether Sync: there is no conflict to resolve.");
+			new Notice("Halyard Sync: there is no conflict to resolve.");
 			return;
 		}
 		const files = status.conflictFiles ?? [];
@@ -746,10 +746,10 @@ export default class TetherSyncPlugin extends Plugin {
 		new ConflictModal(this.app, files, stats, async (strategy) => {
 			const result = await this.orchestrator.resolveConflict(strategy);
 			if (result === null) {
-				new Notice("Tether Sync: could not resolve — see the status bar.");
+				new Notice("Halyard Sync: could not resolve — see the status bar.");
 				return;
 			}
-			new Notice(`Tether Sync: ${result.message}`, 10_000);
+			new Notice(`Halyard Sync: ${result.message}`, 10_000);
 			if (result.kind === "resolved") {
 				// Resolving a conflict lifts a keep-local pause.
 				await this.setAutoSyncPaused(false);
@@ -760,7 +760,7 @@ export default class TetherSyncPlugin extends Plugin {
 	/**
 	 * Check the configured remote + saved token by doing a real ref
 	 * advertisement — the wizard's "Test connection", matching the equivalent
-	 * step in Tether Fetch's add-source wizard.
+	 * step in Halyard Fetch's add-source wizard.
 	 *
 	 * Takes `engineLock` like every other engine user: the test can run while
 	 * a scheduled sync is in flight, and `GitEngine` is not reentrant.
@@ -868,7 +868,7 @@ export default class TetherSyncPlugin extends Plugin {
 	 * "Adopt" a vault that already has a `.git` repository the wizard didn't
 	 * create — unlike `cloneRemote`/`initFromExistingVault` above, this never
 	 * force-checks-out or force-commits anything. It only points this
-	 * plugin's own remote (`GitEngine`'s `"tether-sync"` — see its doc
+	 * plugin's own remote (`GitEngine`'s `"halyard-sync"` — see its doc
 	 * comment) at the URL from step 1, makes sure `settings.branch` matches
 	 * whatever branch is actually checked out (so the orchestrator operates
 	 * on the real branch instead of a stale default), and hands off to the
@@ -975,7 +975,7 @@ export default class TetherSyncPlugin extends Plugin {
 					}
 				}
 				new Notice(
-					"Tether Sync: re-clone failed — your previous repository state " +
+					"Halyard Sync: re-clone failed — your previous repository state " +
 						"was restored. Vault files were not modified.",
 					10_000
 				);
@@ -984,7 +984,7 @@ export default class TetherSyncPlugin extends Plugin {
 			if (hadGit) {
 				await adapter.rmdir(".git.bak", true).catch(() => {});
 			}
-			new Notice("Tether Sync: re-clone complete");
+			new Notice("Halyard Sync: re-clone complete");
 		});
 	}
 
@@ -1011,7 +1011,7 @@ export default class TetherSyncPlugin extends Plugin {
 			await engine.fetch(this.settings.branch);
 			await engine.hardResetToRemote(this.settings.branch);
 		});
-		new Notice("Tether Sync: local changes discarded");
+		new Notice("Halyard Sync: local changes discarded");
 	}
 
 	async setAutoSyncPaused(paused: boolean): Promise<void> {
@@ -1039,7 +1039,7 @@ export default class TetherSyncPlugin extends Plugin {
 				await engine.ensureRemote(this.settings.remoteUrl);
 			} catch (err) {
 				new Notice(
-					`Tether Sync: could not verify this vault's git remote — ${describeGitError(err)}`,
+					`Halyard Sync: could not verify this vault's git remote — ${describeGitError(err)}`,
 					30_000
 				);
 				return;
@@ -1048,9 +1048,9 @@ export default class TetherSyncPlugin extends Plugin {
 			return;
 		}
 		const message = hasRepo
-			? "Tether Sync found an existing git repository in this vault, but " +
+			? "Halyard Sync found an existing git repository in this vault, but " +
 				"isn't configured to use it yet — click here to set it up."
-			: "Tether Sync: this vault has no repository yet — click here to run the setup wizard.";
+			: "Halyard Sync: this vault has no repository yet — click here to run the setup wizard.";
 		const notice = new Notice(message, 30_000);
 		notice.messageEl.addEventListener("click", () => {
 			notice.hide();
@@ -1092,7 +1092,7 @@ export default class TetherSyncPlugin extends Plugin {
 			callback: () => {
 				const next = !this.settings.autoSyncPaused;
 				void this.setAutoSyncPaused(next).then(() => {
-					new Notice(`Tether Sync: auto-sync ${next ? "paused" : "resumed"}`);
+					new Notice(`Halyard Sync: auto-sync ${next ? "paused" : "resumed"}`);
 				});
 			},
 		});

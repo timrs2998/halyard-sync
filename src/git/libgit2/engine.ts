@@ -518,7 +518,7 @@ async function installHttpDispatch(
 			if (protocolVersion !== null) {
 				throw new SmartHttpProtocolError(
 					`${dispatchUrl} answered in git wire protocol v${protocolVersion}, but this ` +
-						"transport implements v0 only (libgit2 1.9.6 has no v2 support). Tether Sync " +
+						"transport implements v0 only (libgit2 1.9.6 has no v2 support). Halyard Sync " +
 						"does not request v2, so the server volunteered it — check for a proxy or " +
 						"server policy forcing a protocol version.",
 					res.status

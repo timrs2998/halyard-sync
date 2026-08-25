@@ -63,7 +63,7 @@ export function startGitHttpBackend(
 					"utf8"
 				).toString("base64")}`;
 				if (req.headers.authorization !== expected) {
-					res.writeHead(401, { "WWW-Authenticate": 'Basic realm="tether-sync test"' });
+					res.writeHead(401, { "WWW-Authenticate": 'Basic realm="halyard-sync test"' });
 					res.end("authentication required");
 					return;
 				}

@@ -235,7 +235,7 @@ describe("GitLab device flow", () => {
 		expect(`${url.origin}${url.pathname}`).toBe(
 			"https://gitlab.com/-/user_settings/personal_access_tokens"
 		);
-		expect(url.searchParams.get("name")).toBe("tether-sync");
+		expect(url.searchParams.get("name")).toBe("halyard-sync");
 		expect(url.searchParams.get("scopes")).toBe("write_repository,api");
 	});
 

@@ -1,7 +1,7 @@
-# Tether Sync
+# Halyard Sync
 
-[![CI](https://github.com/timrs2998/tether-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/timrs2998/tether-sync/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/timrs2998/tether-sync?sort=semver)](https://github.com/timrs2998/tether-sync/releases)
+[![CI](https://github.com/timrs2998/halyard-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/timrs2998/halyard-sync/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/timrs2998/halyard-sync?sort=semver)](https://github.com/timrs2998/halyard-sync/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Obsidian](https://img.shields.io/badge/Obsidian-%3E%3D1.13.0-7c3aed)](https://obsidian.md)
 [![Mobile](https://img.shields.io/badge/mobile-iOS%20%7C%20Android-brightgreen)](#platform-support)
@@ -65,16 +65,16 @@ Basic-auth convention requires for pull requests even though git sync itself doe
 **Community plugin directory** — not yet listed; submission is pending.
 
 **BRAT** (beta) — install [BRAT](https://github.com/TfTHacker/obsidian42-brat),
-then "Add beta plugin" with `timrs2998/tether-sync`.
+then "Add beta plugin" with `timrs2998/halyard-sync`.
 
 **Manual** — download `manifest.json`, `main.js` and `styles.css` from the
-[latest release](https://github.com/timrs2998/tether-sync/releases) into
-`<vault>/.obsidian/plugins/tether-sync/`. The libgit2 binary is embedded in
+[latest release](https://github.com/timrs2998/halyard-sync/releases) into
+`<vault>/.obsidian/plugins/halyard-sync/`. The libgit2 binary is embedded in
 `main.js`, so there is no fourth file to copy.
 
 ## Setup
 
-Run **"Tether Sync: Open setup wizard"** from the command palette or click the ribbon
+Run **"Halyard Sync: Open setup wizard"** from the command palette or click the ribbon
 icon. Three steps:
 
 1. **Remote URL** — the repository's **HTTPS** URL
@@ -132,7 +132,7 @@ entirely and keeps only the startup and foreground triggers.
 
 ## git-crypt support
 
-Tether Sync runs git-crypt's clean/smudge filter natively — a real compiled-in
+Halyard Sync runs git-crypt's clean/smudge filter natively — a real compiled-in
 `git_filter_register`, not a subprocess — so a git-crypt-encrypted repository syncs
 correctly rather than being detected and refused. Both the **default key** and
 **named keys** (`git-crypt init <name>`, `filter=git-crypt-<name>` in
@@ -249,7 +249,7 @@ exactly. `.npmrc`'s `tag-version-prefix=""` is what keeps `npm version` from add
 
 - **[obsidian-git](https://github.com/Vinzent03/obsidian-git)** (Vinzent03) — the
   plugin that defined git-in-Obsidian, and the reference every design decision here
-  was measured against. Tether Sync differs by compiling libgit2 to WebAssembly for
+  was measured against. Halyard Sync differs by compiling libgit2 to WebAssembly for
   real mobile support, and by refusing to write conflict markers into notes.
 - **[libgit2](https://github.com/libgit2/libgit2)** — the actual git implementation
   this plugin runs. GPLv2 with a linking exception; see

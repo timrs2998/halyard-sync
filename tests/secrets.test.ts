@@ -102,13 +102,13 @@ describe("SecretStore", () => {
 		await store.setToken("git.corp.example", "b");
 		await expect(store.getToken("github.com")).resolves.toBe("a");
 		await expect(store.getToken("git.corp.example")).resolves.toBe("b");
-		expect(secretKeyForHost("github.com")).toBe("tether-sync-github-com");
+		expect(secretKeyForHost("github.com")).toBe("halyard-sync-github-com");
 	});
 
 	it("produces a lowercase-alphanumeric-plus-dashes ID (app.secretStorage's only accepted shape)", () => {
 		expect(secretKeyForHost("github.com")).toMatch(/^[a-z0-9-]+$/);
 		expect(secretKeyForHost("GitLab.Example.com:8443")).toBe(
-			"tether-sync-gitlab-example-com-8443"
+			"halyard-sync-gitlab-example-com-8443"
 		);
 	});
 
@@ -201,7 +201,7 @@ describe("GitCryptKeyStore", () => {
 
 			expectMaterialEqual(await store.getKey("github.com"), material(1));
 			expectMaterialEqual(await store.getKey("gitlab.com"), material(2));
-			expect(gitCryptKeyStorageKey("github.com")).toBe("tether-sync-gitcrypt-github-com");
+			expect(gitCryptKeyStorageKey("github.com")).toBe("halyard-sync-gitcrypt-github-com");
 		});
 	});
 

@@ -6,7 +6,7 @@ This plugin was developed with substantial AI assistance (Claude).
 
 ## What this plugin is
 
-Tether Sync syncs an Obsidian vault with a git repository over HTTPS, on desktop and
+Halyard Sync syncs an Obsidian vault with a git repository over HTTPS, on desktop and
 mobile, using real libgit2 compiled to WebAssembly. Two guarantees drive most design
 decisions and must not regress:
 

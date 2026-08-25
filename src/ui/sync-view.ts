@@ -12,34 +12,34 @@
  */
 
 import { ItemView, Setting, type WorkspaceLeaf } from "obsidian";
-import { TETHER_SYNC_ICON_ID } from "./icon";
+import { HALYARD_SYNC_ICON_ID } from "./icon";
 import { SyncHistoryModal } from "./modals";
 import { buildSyncPanelViewModel } from "./sync-panel-model";
-import type TetherSyncPlugin from "../main";
+import type HalyardSyncPlugin from "../main";
 
-export const TETHER_SYNC_VIEW_TYPE = "tether-sync-panel";
+export const HALYARD_SYNC_VIEW_TYPE = "halyard-sync-panel";
 
-export class TetherSyncView extends ItemView {
+export class HalyardSyncView extends ItemView {
 	private unsubscribe: (() => void) | null = null;
 	private refreshTimer: number | null = null;
 
 	constructor(
 		leaf: WorkspaceLeaf,
-		private readonly plugin: TetherSyncPlugin
+		private readonly plugin: HalyardSyncPlugin
 	) {
 		super(leaf);
 	}
 
 	getViewType(): string {
-		return TETHER_SYNC_VIEW_TYPE;
+		return HALYARD_SYNC_VIEW_TYPE;
 	}
 
 	getDisplayText(): string {
-		return "Tether Sync";
+		return "Halyard Sync";
 	}
 
 	getIcon(): string {
-		return TETHER_SYNC_ICON_ID;
+		return HALYARD_SYNC_ICON_ID;
 	}
 
 	async onOpen(): Promise<void> {
@@ -63,7 +63,7 @@ export class TetherSyncView extends ItemView {
 	private render(): void {
 		const container = this.contentEl;
 		container.empty();
-		container.addClass("tether-sync-view");
+		container.addClass("halyard-sync-view");
 
 		const model = buildSyncPanelViewModel(
 			this.plugin.orchestrator.status,
@@ -75,7 +75,7 @@ export class TetherSyncView extends ItemView {
 		);
 
 		container.createEl("h3", { text: model.headline });
-		container.createEl("p", { text: model.detail, cls: "tether-sync-view-detail" });
+		container.createEl("p", { text: model.detail, cls: "halyard-sync-view-detail" });
 
 		if (model.primaryAction === "setup") {
 			// Nothing to sync/resolve/schedule yet — a "Sync now" button here
@@ -107,20 +107,20 @@ export class TetherSyncView extends ItemView {
 			);
 		}
 
-		container.createEl("p", { text: model.nextSyncText, cls: "tether-sync-view-next-sync" });
+		container.createEl("p", { text: model.nextSyncText, cls: "halyard-sync-view-next-sync" });
 
 		container.createEl("h4", { text: "Recent activity" });
 		if (model.recentHistory.length === 0) {
 			container.createEl("p", { text: "No syncs recorded yet." });
 			return;
 		}
-		const list = container.createEl("ul", { cls: "tether-sync-history-list" });
+		const list = container.createEl("ul", { cls: "halyard-sync-history-list" });
 		for (const row of model.recentHistory) {
 			const item = list.createEl("li");
 			item.createEl("strong", { text: row.label });
 			item.createSpan({ text: ` — ${row.when}` });
 			if (row.message !== null) {
-				item.createDiv({ text: row.message, cls: "tether-sync-history-message" });
+				item.createDiv({ text: row.message, cls: "halyard-sync-history-message" });
 			}
 		}
 		new Setting(container).addButton((btn) =>

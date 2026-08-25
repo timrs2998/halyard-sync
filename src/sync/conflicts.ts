@@ -167,7 +167,7 @@ export class ConflictResolver {
 						targetBranch: branch,
 						title: `Vault sync conflict from ${device}`,
 						body:
-							`Automatic conflict branch created by Tether Sync on ` +
+							`Automatic conflict branch created by Halyard Sync on ` +
 							`${device} at ${when.toISOString()}.\n\n` +
 							`Conflicting files:\n${formatFileList(files)}\n\n` +
 							`Merge this branch to keep those changes; close it to drop them.`,

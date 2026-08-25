@@ -66,7 +66,7 @@ export function withRequestTimeout(
 						`Request to ${param.url} timed out after ${timeoutMs}ms — this often means ` +
 							"a proxy or firewall is silently dropping the connection rather than " +
 							"returning an error. Increase the timeout, or check your network's " +
-							"proxy settings, in Tether Sync's Advanced settings."
+							"proxy settings, in Halyard Sync's Advanced settings."
 					)
 				);
 			}, timeoutMs);

@@ -103,7 +103,7 @@ function buildSeedRepo(serverRoot: string, allowPush = false): void {
 	if (allowPush) {
 		git(["config", "http.receivepack", "true"], join(serverRoot, "repo.git"));
 	}
-	const workDir = mkdtempSync(join(tmpdir(), "tether-auth-seed-"));
+	const workDir = mkdtempSync(join(tmpdir(), "halyard-auth-seed-"));
 	git(["clone", "--quiet", join(serverRoot, "repo.git"), workDir], tmpdir());
 	writeFileSync(join(workDir, "file.txt"), "seeded content\n", "utf8");
 	git(["add", "file.txt"], workDir);
@@ -113,7 +113,7 @@ function buildSeedRepo(serverRoot: string, allowPush = false): void {
 
 describe.skipIf(factory === null)("production HTTP transport: HTTPS scheme + Basic-auth credentials (real)", () => {
 	it("fetch() over https:// with correct credentials succeeds and the server actually receives the Authorization header", async () => {
-		const serverRoot = mkdtempSync(join(tmpdir(), "tether-auth-fetch-server-"));
+		const serverRoot = mkdtempSync(join(tmpdir(), "halyard-auth-fetch-server-"));
 		buildSeedRepo(serverRoot);
 
 		const receivedAuthHeaders: Array<string | undefined> = [];
@@ -154,7 +154,7 @@ describe.skipIf(factory === null)("production HTTP transport: HTTPS scheme + Bas
 	}, 30_000);
 
 	it("fetch() without credentials against an auth-required server fails", async () => {
-		const serverRoot = mkdtempSync(join(tmpdir(), "tether-auth-noauth-server-"));
+		const serverRoot = mkdtempSync(join(tmpdir(), "halyard-auth-noauth-server-"));
 		buildSeedRepo(serverRoot);
 
 		const server = await startGitHttpBackend(serverRoot, "repo.git", { requireAuth: AUTH });
@@ -174,7 +174,7 @@ describe.skipIf(factory === null)("production HTTP transport: HTTPS scheme + Bas
 	}, 30_000);
 
 	it("listRemoteRefs (module-level, no open repo) works with credentials over https://", async () => {
-		const serverRoot = mkdtempSync(join(tmpdir(), "tether-auth-lsremote-server-"));
+		const serverRoot = mkdtempSync(join(tmpdir(), "halyard-auth-lsremote-server-"));
 		buildSeedRepo(serverRoot);
 
 		const server = await startGitHttpBackend(serverRoot, "repo.git", { requireAuth: AUTH });
@@ -192,7 +192,7 @@ describe.skipIf(factory === null)("production HTTP transport: HTTPS scheme + Bas
 	}, 30_000);
 
 	it("push() with credentials over https:// updates the remote, verified with the real git CLI", async () => {
-		const serverRoot = mkdtempSync(join(tmpdir(), "tether-auth-push-server-"));
+		const serverRoot = mkdtempSync(join(tmpdir(), "halyard-auth-push-server-"));
 		buildSeedRepo(serverRoot, /* allowPush */ true);
 
 		const server = await startGitHttpBackend(serverRoot, "repo.git", { requireAuth: AUTH });
@@ -217,7 +217,7 @@ describe.skipIf(factory === null)("production HTTP transport: HTTPS scheme + Bas
 
 			// Independent verification: the real git CLI, cloning fresh from
 			// the bare server repo, sees the pushed commit.
-			const verifyDir = mkdtempSync(join(tmpdir(), "tether-auth-push-verify-"));
+			const verifyDir = mkdtempSync(join(tmpdir(), "halyard-auth-push-verify-"));
 			git(["clone", "--quiet", join(serverRoot, "repo.git"), verifyDir], tmpdir());
 			expect(git(["log", "-1", "--format=%s"], verifyDir)).toBe("push via engine.ts");
 			expect(git(["show", "HEAD:new-file.txt"], verifyDir)).toBe("pushed via engine.ts");

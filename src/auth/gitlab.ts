@@ -53,7 +53,7 @@ export class GitLabProvider implements ForgeProvider {
 	 * built off `this.base`, not a hardcoded gitlab.com URL. */
 	get patUrl(): string {
 		const params = new URLSearchParams({
-			name: "tether-sync",
+			name: "halyard-sync",
 			scopes: SCOPES.split(" ").join(","),
 		});
 		return `${this.base}/-/user_settings/personal_access_tokens?${params.toString()}`;

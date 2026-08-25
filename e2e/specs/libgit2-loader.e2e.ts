@@ -25,7 +25,7 @@ import { describe, it } from "mocha";
 
 const WASM = "tether-libgit2.wasm";
 
-describe("Tether Sync's libgit2 WASM engine in a real Obsidian instance", function () {
+describe("Halyard Sync's libgit2 WASM engine in a real Obsidian instance", function () {
 	it("builds a working engine with no sibling .wasm in the plugin directory", async function () {
 		// WASM instantiation plus the initial VaultMirror hydration is real work.
 		this.timeout(120 * 1000);
@@ -35,7 +35,7 @@ describe("Tether Sync's libgit2 WASM engine in a real Obsidian instance", functi
 				plugins: {
 					plugins: Record<string, { manifest?: { dir?: string }; getEngine?: () => Promise<unknown> }>;
 				};
-			}).plugins.plugins["tether-sync"];
+			}).plugins.plugins["halyard-sync"];
 
 			const dir = plugin?.manifest?.dir;
 			if (dir === undefined) return { siblingWasmExists: null, ok: false, methods: [] as string[], error: "manifest.dir is undefined" };
@@ -73,7 +73,7 @@ describe("Tether Sync's libgit2 WASM engine in a real Obsidian instance", functi
 		const result = await browser.executeObsidian(async ({ app }) => {
 			const plugin = (app as unknown as {
 				plugins: { plugins: Record<string, { getEngine?: () => Promise<Record<string, unknown>> }> };
-			}).plugins.plugins["tether-sync"];
+			}).plugins.plugins["halyard-sync"];
 			try {
 				const engine = (await plugin.getEngine!()) as unknown as {
 					initFromExistingVault: (options: { url: string; defaultBranch?: string }) => Promise<unknown>;

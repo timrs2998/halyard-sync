@@ -62,12 +62,14 @@ export interface FallbackSecretPersistence {
 	save(secrets: Record<string, string>): Promise<void>;
 }
 
-const KEY_PREFIX = "tether-sync-";
+const KEY_PREFIX = "halyard-sync-";
 /** Pre-fix key shape (colons, dots — invalid once a real host hits
  * `app.secretStorage`, whose `setSecret` only accepts a "lowercase
  * alphanumeric ID with optional dashes" and throws otherwise). Still checked
  * on read for the insecure data.json fallback, which had no such
- * restriction and may hold tokens saved under the old shape. */
+ * restriction and may hold tokens saved under the old shape. Keeps the
+ * pre-rename "tether-sync" brand deliberately: that is the literal prefix
+ * those old entries were written with, so renaming it would strand them. */
 const LEGACY_KEY_PREFIX = "tether-sync:";
 
 /** `app.secretStorage.setSecret` requires a lowercase-alphanumeric-plus-
@@ -144,7 +146,7 @@ export interface GitCryptKeyMaterial {
 	hmacKey: Uint8Array;
 }
 
-const GITCRYPT_KEY_PREFIX = "tether-sync-gitcrypt-";
+const GITCRYPT_KEY_PREFIX = "halyard-sync-gitcrypt-";
 /** See `LEGACY_KEY_PREFIX` above — same pre-fix shape, same fallback-only read. */
 const LEGACY_GITCRYPT_KEY_PREFIX = "tether-sync:gitcrypt:";
 

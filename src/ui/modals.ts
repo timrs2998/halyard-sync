@@ -15,7 +15,7 @@ import { MAX_CONFLICT_FILES_SHOWN, type ConflictStrategyName } from "../sync/con
 import type { SyncHistoryEntry } from "../sync/orchestrator";
 import { HISTORY_OUTCOME_LABELS } from "./history-format";
 import { formatRelativeTime } from "./statusbar";
-import type TetherSyncPlugin from "../main";
+import type HalyardSyncPlugin from "../main";
 
 const PROVIDER_KIND_LABELS: Record<ProviderKind, string> = {
 	github: "GitHub",
@@ -35,7 +35,7 @@ const PROVIDER_KIND_LABELS: Record<ProviderKind, string> = {
 
 export interface TokenSettingRendererOptions {
 	app: App;
-	plugin: TetherSyncPlugin;
+	plugin: HalyardSyncPlugin;
 	provider: ForgeProvider | null;
 	saveButtonText: string;
 	/** Called after the token is saved successfully (device flow or PAT). */
@@ -119,7 +119,7 @@ export function createTokenSettingRenderers(opts: TokenSettingRendererOptions): 
 		patInput: (setting) => {
 			setting.addText((text) => {
 				text.inputEl.type = "password";
-				text.inputEl.addClass("tether-sync-wide-input");
+				text.inputEl.addClass("halyard-sync-wide-input");
 				text.setPlaceholder("Paste token…").onChange((value) => {
 					patValue = value.trim();
 				});
@@ -193,7 +193,7 @@ export interface GitCryptKeyImportOptions {
 	/** Where the hidden `<input type="file">` is attached — any element that
 	 * outlives the click (the row's own container is fine; it's invisible). */
 	container: HTMLElement;
-	plugin: TetherSyncPlugin;
+	plugin: HalyardSyncPlugin;
 	/** Called after a key file is successfully parsed and stored. */
 	onImported: () => void;
 	/** Called instead of throwing — same convention as `renderTokenSetting`. */
@@ -220,7 +220,7 @@ export interface GitCryptKeyImportOptions {
 export function attachGitCryptKeyImportButton(setting: Setting, opts: GitCryptKeyImportOptions): void {
 	const { container, plugin } = opts;
 
-	const fileInput = container.createEl("input", { type: "file", cls: "tether-sync-hidden-file-input" });
+	const fileInput = container.createEl("input", { type: "file", cls: "halyard-sync-hidden-file-input" });
 	fileInput.addEventListener("change", () => {
 		void (async () => {
 			const file = fileInput.files?.[0];
@@ -278,7 +278,7 @@ export class ConfirmModal extends Modal {
 						await this.opts.onConfirm();
 					} catch (err) {
 						new Notice(
-							`Tether Sync: ${err instanceof Error ? err.message : String(err)}`
+							`Halyard Sync: ${err instanceof Error ? err.message : String(err)}`
 						);
 					}
 				});
@@ -344,7 +344,7 @@ export class DeviceCodeModal extends Modal {
 		});
 
 		const codeEl = this.contentEl.createDiv({ text: start.userCode });
-		codeEl.addClass("tether-sync-device-code");
+		codeEl.addClass("halyard-sync-device-code");
 
 		new Setting(this.contentEl)
 			.addButton((btn) =>
@@ -545,7 +545,7 @@ export class SetupWizardModal extends Modal {
 
 	constructor(
 		app: App,
-		private readonly plugin: TetherSyncPlugin,
+		private readonly plugin: HalyardSyncPlugin,
 		private readonly onDone?: () => void
 	) {
 		super(app);
@@ -553,7 +553,7 @@ export class SetupWizardModal extends Modal {
 	}
 
 	onOpen(): void {
-		this.modalEl.addClass("tether-sync-wizard-modal");
+		this.modalEl.addClass("halyard-sync-wizard-modal");
 		this.render();
 		// Only worth checking when nothing is saved/typed yet — a non-empty
 		// remoteUrl means either a prior wizard run or the user already
@@ -591,7 +591,7 @@ export class SetupWizardModal extends Modal {
 	}
 
 	private render(): void {
-		this.titleEl.setText("Tether Sync setup");
+		this.titleEl.setText("Halyard Sync setup");
 		this.contentEl.empty();
 		switch (this.step) {
 			case "remote":
@@ -616,16 +616,16 @@ export class SetupWizardModal extends Modal {
 		if (this.detectedHint !== null) {
 			this.contentEl.createEl("p", {
 				text: this.detectedHint,
-				cls: "tether-sync-hint-text",
+				cls: "halyard-sync-hint-text",
 			});
 		}
 		const errorEl = this.contentEl.createEl("p");
-		errorEl.addClass("tether-sync-error-text");
+		errorEl.addClass("halyard-sync-error-text");
 
 		new Setting(this.contentEl)
 			.setName("Remote URL")
 			.addText((text) => {
-				text.inputEl.addClass("tether-sync-wide-input");
+				text.inputEl.addClass("halyard-sync-wide-input");
 				text
 					.setValue(this.remoteUrl)
 					.setPlaceholder("https://github.com/owner/repo.git")
@@ -671,7 +671,7 @@ export class SetupWizardModal extends Modal {
 			text: `Step 2 of 3 — authenticate. This remote looks like ${kindLabel}.`,
 		});
 		const errorEl = this.contentEl.createEl("p");
-		errorEl.addClass("tether-sync-error-text");
+		errorEl.addClass("halyard-sync-error-text");
 
 		const goToClone = () => {
 			this.step = "clone";
@@ -710,13 +710,13 @@ export class SetupWizardModal extends Modal {
 	}
 
 	/**
-	 * "Test connection" — parity with Tether Fetch's wizard step 4, and the
+	 * "Test connection" — parity with Halyard Fetch's wizard step 4, and the
 	 * cheapest place to catch a bad URL, a wrong/expired token, or a server
 	 * this transport cannot talk to, before the user commits to a clone.
 	 *
 	 * Optional on purpose: it is a diagnostic, not a gate. Step 3's actions
 	 * stay reachable without it, so being offline or rate-limited never blocks
-	 * setup. (Tether Fetch has to gate its Next button because its later steps
+	 * setup. (Halyard Fetch has to gate its Next button because its later steps
 	 * need the downloaded artifact to detect a content root; nothing here
 	 * needs the network until the user picks an action.)
 	 */
@@ -769,7 +769,7 @@ export class SetupWizardModal extends Modal {
 			return;
 		}
 		statusEl.addClass(
-			this.testState === "ok" ? "tether-sync-hint-text" : "tether-sync-error-text"
+			this.testState === "ok" ? "halyard-sync-hint-text" : "halyard-sync-error-text"
 		);
 		const prefix = this.testState === "ok" ? "✓" : this.testState === "warning" ? "⚠" : "✗";
 		statusEl.setText(`${prefix} ${this.testMessage}`);
@@ -782,7 +782,7 @@ export class SetupWizardModal extends Modal {
 		this.contentEl.createEl("p", {
 			text: this.hasExistingGitDir
 				? "Step 3 of 3 — this vault already has a git repository. Connect " +
-					"Tether Sync to it without disturbing what's there."
+					"Halyard Sync to it without disturbing what's there."
 				: "Step 3 of 3 — connect the vault. Clone if the repository already " +
 					"has your notes; initialize if this vault should become the " +
 					"repository's initial content.",
@@ -792,7 +792,7 @@ export class SetupWizardModal extends Modal {
 		const runStep = async (
 			label: string,
 			action: () => Promise<void>,
-			successMessage = "Tether Sync: setup complete"
+			successMessage = "Halyard Sync: setup complete"
 		) => {
 			if (this.busy) return;
 			this.busy = true;
@@ -817,7 +817,7 @@ export class SetupWizardModal extends Modal {
 			new Setting(this.contentEl)
 				.setName("Use existing repository")
 				.setDesc(
-					"Points Tether Sync's own remote at the URL from step 1, then " +
+					"Points Halyard Sync's own remote at the URL from step 1, then " +
 						"syncs the normal way: any uncommitted changes are committed, " +
 						"the remote is fetched, and the two are merged — a real " +
 						"conflict is handled exactly like any later sync would. " +
@@ -829,7 +829,7 @@ export class SetupWizardModal extends Modal {
 						void runStep(
 							"Connecting",
 							() => this.plugin.adoptExistingRepo((msg) => progressEl.setText(msg)),
-							"Tether Sync: connected — watch the status bar or sync panel " +
+							"Halyard Sync: connected — watch the status bar or sync panel " +
 								"for progress as it reconciles with the remote."
 						);
 					})
@@ -923,9 +923,9 @@ export class SetupWizardModal extends Modal {
 		this.contentEl.createEl("p", {
 			text:
 				`Missing key(s): ${missingKeys.join(", ")}. Syncing is paused until every key the ` +
-				"repository references is imported — go to Settings → Tether Sync → Encryption to " +
+				"repository references is imported — go to Settings → Halyard Sync → Encryption to " +
 				"import it. Nothing has been committed or pushed unencrypted in the meantime.",
-			cls: "tether-sync-hint-text",
+			cls: "halyard-sync-hint-text",
 		});
 		new Setting(this.contentEl).addButton((btn) =>
 			btn.setButtonText("Got it").setCta().onClick(() => this.close())
@@ -985,7 +985,7 @@ export class SyncHistoryModal extends Modal {
 			return;
 		}
 		const now = Date.now();
-		const list = this.contentEl.createEl("ul", { cls: "tether-sync-history-list" });
+		const list = this.contentEl.createEl("ul", { cls: "halyard-sync-history-list" });
 		// Most recent first.
 		for (const entry of [...this.history].reverse()) {
 			const item = list.createEl("li");
@@ -996,7 +996,7 @@ export class SyncHistoryModal extends Modal {
 			if (entry.message !== null) {
 				item.createDiv({
 					text: entry.message,
-					cls: "tether-sync-history-message",
+					cls: "halyard-sync-history-message",
 				});
 			}
 		}

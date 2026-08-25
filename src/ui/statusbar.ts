@@ -51,7 +51,7 @@ export function statusBarView(
 ): StatusBarView {
 	if (setupState === "unconfigured") {
 		return {
-			text: "⚙ set up Tether Sync",
+			text: "⚙ set up Halyard Sync",
 			tooltip: "Not set up yet — click to run the setup wizard.",
 		};
 	}

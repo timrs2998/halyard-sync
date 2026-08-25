@@ -42,7 +42,7 @@ Re-verify both before bumping either, and re-run `tests/libgit2/` afterward.
 
 ```sh
 cd src/git/libgit2
-docker build -t tether-sync-libgit2-wasm -f build/Dockerfile .
+docker build -t halyard-sync-libgit2-wasm -f build/Dockerfile .
 
 # A named volume, not a host bind mount — see "Windows gotchas" below.
 docker volume create tether-libgit2-buildwork
@@ -50,7 +50,7 @@ docker volume create tether-libgit2-buildwork
 docker run --rm \
   -v "$(pwd)/build/dist:/work/build/dist" \
   -v "tether-libgit2-buildwork:/work/build/.build-work" \
-  tether-sync-libgit2-wasm
+  halyard-sync-libgit2-wasm
 ```
 
 The build context is `src/git/libgit2`, not `build/`. Mount `dist` at
