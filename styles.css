@@ -59,13 +59,13 @@
 	color: var(--text-error);
 }
 
-/* Syncing state (main.ts's updateRibbon): the halyard cord (ui/icon.ts's
-   custom icon, the .halyard-sync-icon-cord path) "flows" along its own
-   length instead of the whole glyph spinning — keeps the anchor dots
-   still, reads as data moving along the halyard rather than a generic
+/* Syncing state (main.ts's updateRibbon): the halyard rope (ui/icon.ts's
+   custom icon, the .halyard-sync-icon-rope path) "flows" along its own
+   length instead of the whole glyph spinning — keeps the block and arrows
+   still, reading as data moving along the halyard rather than a generic
    loading spinner. stroke-dasharray sum is 18, so a -36 (2x) dashoffset
    travel per cycle loops seamlessly with no visible seam/jump. */
-.halyard-sync-ribbon-syncing svg .halyard-sync-icon-cord {
+.halyard-sync-ribbon-syncing svg .halyard-sync-icon-rope {
 	stroke-dasharray: 10 8;
 	animation: halyard-sync-flow 0.9s linear infinite;
 }
@@ -77,7 +77,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-	.halyard-sync-ribbon-syncing svg .halyard-sync-icon-cord {
+	.halyard-sync-ribbon-syncing svg .halyard-sync-icon-rope {
 		animation: none;
 	}
 }

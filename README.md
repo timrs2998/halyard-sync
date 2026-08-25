@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/halyard-sync.svg" width="112" height="112" alt="Halyard Sync icon">
+</p>
+
 # Halyard Sync
 
 [![CI](https://github.com/timrs2998/halyard-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/timrs2998/halyard-sync/actions/workflows/ci.yml)

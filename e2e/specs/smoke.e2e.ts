@@ -19,6 +19,7 @@ describe("Halyard Sync loads in a real Obsidian instance", function () {
 	it("adds a ribbon icon", async function () {
 		const ribbon = browser.$(".halyard-sync-ribbon-icon");
 		await expect(ribbon).toExist();
+		await expect(ribbon.$(".halyard-sync-icon-rope")).toExist();
 		const ariaLabel = await ribbon.getAttribute("aria-label");
 		expect(ariaLabel).toContain("Halyard Sync:");
 	});
