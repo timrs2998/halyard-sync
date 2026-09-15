@@ -647,8 +647,19 @@ export class GitEngine {
 			);
 		}
 		this.repo = await this.opts.module.openRepository(this.opts.dir);
+		await this.configureFileMode(this.repo);
+		await this.flush();
 		await this.syncGitCryptFilter();
 		return this.repo;
+	}
+
+	/**
+	 * Obsidian's cross-platform adapter has no portable executable-bit
+	 * metadata. Ignore mode-only differences so a mobile repository cannot
+	 * stage synthetic executable bits from the WASM filesystem adapter.
+	 */
+	private async configureFileMode(repo: Libgit2Repository): Promise<void> {
+		await repo.setConfig("core.filemode", "false");
 	}
 
 	private async flush(): Promise<void> {
@@ -702,6 +713,7 @@ export class GitEngine {
 			},
 			net
 		);
+		await this.configureFileMode(this.repo);
 		await this.flush();
 		await this.syncGitCryptFilter();
 	}
@@ -714,6 +726,7 @@ export class GitEngine {
 		await repo.addRemote(this.remote, options.url, { force: true });
 		await repo.setConfig("user.name", this.opts.author.name);
 		await repo.setConfig("user.email", this.opts.author.email);
+		await this.configureFileMode(repo);
 		this.repo = repo;
 		await this.flush();
 		await this.syncGitCryptFilter();

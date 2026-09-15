@@ -46,9 +46,10 @@ const AUTHOR = { name: "Test", email: "test@example.com" };
 
 describe.skipIf(factory === null)("VaultMirror mounted into the real compiled module (not NODEFS)", () => {
 	it("init -> write -> stage -> commit -> modify -> force-checkout -> flush, entirely through the VaultMirror mount", async () => {
-			const Module = await factory!();
+		const Module = await factory!();
 
 		const mirror = new VaultMirror();
+		mirror.writeFile("existing.md", new TextEncoder().encode("hydrated vault file\n"));
 		const errnoCodes = deriveErrnoCodes(Module);
 		const globals: ClassicFsBackendGlobals = {
 			ErrnoError: Module.FS.ErrnoError,
@@ -61,6 +62,11 @@ describe.skipIf(factory === null)("VaultMirror mounted into the real compiled mo
 
 		Module.FS.mkdir("/repo");
 		Module.FS.mount(backend, {}, "/repo");
+		expect(new TextDecoder().decode(Module.FS.readFile("/repo/existing.md"))).toBe(
+			"hydrated vault file\n"
+		);
+		expect((Module.FS.stat("/repo/existing.md") as { mode: number }).mode & 0o777).toBe(0o644);
+		expect((Module.FS.stat("/repo") as { mode: number }).mode & 0o777).toBe(0o755);
 
 		const git2 = await wrapLibgit2Module(Module, { requestUrl: neverRequestUrl });
 		const repo = await git2.init({ dir: "/repo", defaultBranch: "main" });

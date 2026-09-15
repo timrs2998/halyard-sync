@@ -67,6 +67,7 @@ describe.skipIf(factory === null)("GitEngine against the real compiled libgit2 m
 			defaultBranch: "main",
 		});
 		expect(await engine.getRemoteUrl()).toBe("https://example.com/vault.git");
+		expect(await adapter.read(".git/config")).toContain("filemode = false");
 		// Unborn HEAD (no commit yet): libgit2's `git_repository_head` reports
 		// GIT_EUNBORNBRANCH, which `Libgit2Repository.currentBranch()` maps to
 		// null (documented, matching resolveRef's null-on-absent contract) —

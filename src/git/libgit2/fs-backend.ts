@@ -794,7 +794,14 @@ export function describeClassicFsBackend(mirror: VaultMirror, globals: ClassicFs
 			const path = childPath(parent, name);
 			if (!mirror.has(path)) throw new globals.ErrnoError(globals.errnoCodes.ENOENT);
 			const isDir = mirror.stat(path).isDirectory;
-			const node = globals.createNode(parent, name, (isDir ? S_IFDIR : S_IFREG) | 0o777, 0);
+			// VaultMirror deliberately has no POSIX permission metadata: Obsidian's
+			// adapters cannot preserve it across desktop and mobile.  Synthesizing
+			// 0777 here made libgit2 treat every ordinary vault file as executable
+			// and stage a whole-vault 100644 -> 100755 mode-only change on mobile.
+			// Use conventional modes instead: searchable directories and
+			// non-executable regular files.
+			const mode = isDir ? S_IFDIR | 0o755 : S_IFREG | 0o644;
+			const node = globals.createNode(parent, name, mode, 0);
 			return attach(node, path);
 		},
 		mknod(parent: FsNode, name: string, mode: number, dev: number) {
@@ -1000,7 +1007,7 @@ export function describeClassicFsBackend(mirror: VaultMirror, globals: ClassicFs
 
 	return {
 		mount(_mountInfo: { opts: unknown; mountpoint: string }): FsNode {
-			const root = globals.createNode(null, "/", S_IFDIR | 0o777, 0);
+			const root = globals.createNode(null, "/", S_IFDIR | 0o755, 0);
 			return attach(root, "");
 		},
 		node_ops,
