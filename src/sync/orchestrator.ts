@@ -12,6 +12,8 @@
 
 import { describeGitCryptLocked, describeUnsupportedFilters } from "../git/engine";
 import type { AheadBehind, ChangedFile, FilterCheckResult, MergeOutcome, RemoteRefInfo } from "../git/engine";
+import type { ExternalWriteBlock } from "../settings";
+import { AsyncLock } from "./async-lock";
 import type { ConflictResult, ConflictStrategyName } from "./conflicts";
 
 /**
@@ -56,7 +58,8 @@ export type SyncState =
 	| "conflict"
 	| "error"
 	| "blocked"
-	| "locked";
+	| "locked"
+	| "external-write";
 
 export interface SyncStatusEvent {
 	state: SyncState;
@@ -69,6 +72,8 @@ export interface SyncStatusEvent {
 	conflictFiles: string[] | null;
 	/** PR/MR created by the most recent conflict resolution. */
 	prUrl: string | null;
+	/** Changed paths filtered out during the most recent staging pass. */
+	ignoredPaths?: string[];
 }
 
 export type SyncStatusListener = (event: SyncStatusEvent) => void;
@@ -99,6 +104,7 @@ export interface OrchestratorEngine {
 	mergeUpstream(branch: string): Promise<MergeOutcome>;
 	aheadBehind(branch: string): Promise<AheadBehind>;
 	push(options?: { ref?: string; remoteRef?: string; force?: boolean }): Promise<unknown>;
+	getIgnoredChangedFiles?(): string[] | Promise<string[]>;
 }
 
 export interface ConflictStrategyRunner {
@@ -128,6 +134,11 @@ export interface OrchestratorOptions {
 	initialHistory?: SyncHistoryEntry[];
 	/** Fired after a new entry is appended to `history`, for persistence. */
 	onHistoryEntry?: (history: readonly SyncHistoryEntry[]) => void | Promise<void>;
+	getAutoSyncPaused?: () => boolean;
+	initialExternalWriteBlocks?: Record<string, ExternalWriteBlock>;
+	onExternalWriteBlockChange?: (
+		blocks: Readonly<Record<string, ExternalWriteBlock>>
+	) => void | Promise<void>;
 }
 
 export class SyncOrchestrator {
@@ -137,14 +148,22 @@ export class SyncOrchestrator {
 	private lastSyncAt: number | null = null;
 	private conflictFiles: string[] | null = null;
 	private prUrl: string | null = null;
+	private ignoredPaths: string[] = [];
 
 	private running = false;
 	private queuedReason: string | null = null;
 	private readonly listeners = new Set<SyncStatusListener>();
 	private readonly historyEntries: SyncHistoryEntry[];
+	private externalWritePending = false;
+	private externalWritePendingCount = 0;
+	private externalWriteQueuedManual = false;
+	private externalWriteSyncRequested = false;
+	private readonly externalWriteLock = new AsyncLock();
+	private readonly externalWriteBlocks: Record<string, ExternalWriteBlock>;
 
 	constructor(private readonly opts: OrchestratorOptions) {
 		this.historyEntries = (opts.initialHistory ?? []).slice(-MAX_SYNC_HISTORY_ENTRIES);
+		this.externalWriteBlocks = { ...(opts.initialExternalWriteBlocks ?? {}) };
 	}
 
 	/** Most-recent-last; capped at MAX_SYNC_HISTORY_ENTRIES. */
@@ -160,6 +179,7 @@ export class SyncOrchestrator {
 			lastSyncAt: this.lastSyncAt,
 			conflictFiles: this.conflictFiles === null ? null : [...this.conflictFiles],
 			prUrl: this.prUrl,
+			ignoredPaths: [...this.ignoredPaths],
 		};
 	}
 
@@ -169,6 +189,18 @@ export class SyncOrchestrator {
 
 	get isConflicted(): boolean {
 		return this.state === "conflict";
+	}
+
+	get isExternalWritePending(): boolean {
+		return this.externalWritePending;
+	}
+
+	get hasExternalWriteBlock(): boolean {
+		return Object.keys(this.externalWriteBlocks).length > 0;
+	}
+
+	get externalWriteBlocksSnapshot(): Readonly<Record<string, ExternalWriteBlock>> {
+		return { ...this.externalWriteBlocks };
 	}
 
 	/** Subscribe to status changes; returns an unsubscribe function. */
@@ -182,11 +214,60 @@ export class SyncOrchestrator {
 	 * Never throws.
 	 */
 	requestSync(reason: string): void {
+		if (this.externalWritePending) {
+			if (reason === "manual") this.externalWriteQueuedManual = true;
+			return;
+		}
+		if (this.hasExternalWriteBlock) {
+			this.setState("blocked", this.externalWriteBlockMessage());
+			return;
+		}
 		if (this.running) {
 			this.queuedReason = reason;
 			return;
 		}
 		void this.runLoop(reason);
+	}
+
+	/**
+	 * Runs a plugin-owned vault write while the same lock used by git holds.
+	 * The pending flag is set before queueing on that lock so every sync trigger
+	 * that arrives in the meantime is coalesced instead of snapshotting a
+	 * partially materialized tree.
+	 */
+	async runExternalWriteBatch<T>(
+		input: { ownerId: string; paths: string[]; syncOnSuccess: boolean },
+		operation: () => Promise<T>
+	): Promise<T> {
+		this.externalWritePendingCount += 1;
+		this.externalWritePending = true;
+		if (this.externalWritePendingCount === 1) {
+			this.setState("external-write", `Generated write in progress: ${input.paths.join(", ")}`);
+		}
+		return this.externalWriteLock.run(async () => {
+			this.setState("external-write", `Generated write in progress: ${input.paths.join(", ")}`);
+			try {
+				const result = await this.exclusive(operation);
+				await this.completeExternalWrite(input, true);
+				return result;
+			} catch (err) {
+				await this.completeExternalWrite(input, false, errorMessage(err));
+				throw err;
+			}
+		});
+	}
+
+	/** Allows the user to clear a failed-write block after inspecting its paths. */
+	async clearExternalWriteBlock(ownerId?: string): Promise<void> {
+		if (ownerId === undefined) {
+			for (const key of Object.keys(this.externalWriteBlocks)) delete this.externalWriteBlocks[key];
+		} else {
+			delete this.externalWriteBlocks[ownerId];
+		}
+		await this.persistExternalWriteBlocks();
+		if (!this.hasExternalWriteBlock && this.state === "blocked") {
+			this.setState("idle", "External write block cleared — review the vault, then sync when ready.");
+		}
 	}
 
 	/**
@@ -249,6 +330,10 @@ export class SyncOrchestrator {
 
 	private async runOnce(reason: string): Promise<void> {
 		this.reason = reason;
+		if (this.hasExternalWriteBlock) {
+			this.setState("blocked", this.externalWriteBlockMessage());
+			return;
+		}
 		try {
 			await this.exclusive(() => this.sync());
 		} catch (err) {
@@ -304,6 +389,7 @@ export class SyncOrchestrator {
 		this.setState("staging");
 		const commitMessage = `vault sync: ${new Date(now()).toISOString()} (${this.opts.platform})`;
 		const committedOid = await engine.stageAndCommit(commitMessage);
+		this.ignoredPaths = (await engine.getIgnoredChangedFiles?.()) ?? [];
 
 		this.setState("fetching");
 		const remoteInfo = await engine.listRemoteRef(branch);
@@ -328,7 +414,7 @@ export class SyncOrchestrator {
 		if (remoteUnchanged && committedOid === null && local === tracking) {
 			// Clean tree, remote where we left it, nothing unpushed: the whole
 			// no-op poll cost one listRemoteRef round trip.
-			await this.finishIdle(now());
+			await this.finishIdle(now(), this.ignoredMessage());
 			return;
 		}
 		if (remoteInfo !== null && !remoteUnchanged) {
@@ -353,7 +439,7 @@ export class SyncOrchestrator {
 			this.setState("pushing");
 			await engine.push({ ref: branch });
 		}
-		await this.finishIdle(now());
+		await this.finishIdle(now(), this.ignoredMessage());
 	}
 
 	private async handleConflict(files: string[], now: () => number): Promise<void> {
@@ -381,6 +467,69 @@ export class SyncOrchestrator {
 		} else {
 			// keepLocal: remain conflicted; the strategy already paused auto-sync.
 			this.setState("conflict", result.message);
+		}
+	}
+
+	private ignoredMessage(): string | null {
+		if (this.ignoredPaths.length === 0) return null;
+		return `Changed files skipped by ignore rules: ${this.ignoredPaths.join(", ")}.`;
+	}
+
+	private externalWriteBlockMessage(): string {
+		const paths = Object.values(this.externalWriteBlocks)
+			.flatMap((block) => block.paths)
+			.filter((path, index, all) => all.indexOf(path) === index);
+		return `Sync blocked after an external write failed${paths.length > 0 ? ` (${paths.join(", ")})` : ""} — retry the write or clear the block after reviewing the destination.`;
+	}
+
+	private async completeExternalWrite(
+		input: { ownerId: string; paths: string[]; syncOnSuccess: boolean },
+		success: boolean,
+		error?: string
+	): Promise<void> {
+		if (!success) {
+			this.externalWriteBlocks[input.ownerId] = {
+				ownerId: input.ownerId,
+				paths: [...input.paths],
+				at: (this.opts.now ?? Date.now)(),
+				message: error ?? "External write failed.",
+			};
+			await this.persistExternalWriteBlocks();
+		} else {
+			delete this.externalWriteBlocks[input.ownerId];
+			if (input.syncOnSuccess) this.externalWriteSyncRequested = true;
+			await this.persistExternalWriteBlocks();
+		}
+
+		this.externalWritePendingCount -= 1;
+		if (this.externalWritePendingCount > 0) {
+			this.setState("external-write", "Another generated write is queued.");
+			return;
+		}
+
+		this.externalWritePending = false;
+		if (this.hasExternalWriteBlock) {
+			this.externalWriteQueuedManual = false;
+			this.externalWriteSyncRequested = false;
+			this.setState("blocked", this.externalWriteBlockMessage());
+			return;
+		}
+
+		const shouldSync =
+			this.externalWriteQueuedManual ||
+			(this.externalWriteSyncRequested && !this.opts.getAutoSyncPaused?.());
+		this.externalWriteQueuedManual = false;
+		this.externalWriteSyncRequested = false;
+		this.setState("idle", shouldSync ? "Generated write complete — sync queued." : "Generated write complete.");
+		if (shouldSync) this.requestSync("external-write");
+	}
+
+	private async persistExternalWriteBlocks(): Promise<void> {
+		try {
+			await this.opts.onExternalWriteBlockChange?.(this.externalWriteBlocks);
+		} catch {
+			// A persistence failure must not turn a completed vault write into a
+			// second failure or release a safety block in memory.
 		}
 	}
 

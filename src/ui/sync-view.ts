@@ -71,7 +71,8 @@ export class HalyardSyncView extends ItemView {
 			Date.now(),
 			this.plugin.scheduler.nextFireAt,
 			this.plugin.settings.autoSyncPaused,
-			this.plugin.setupState()
+			this.plugin.setupState(),
+			this.plugin.orchestrator.hasExternalWriteBlock
 		);
 
 		container.createEl("h3", { text: model.headline });
@@ -96,6 +97,13 @@ export class HalyardSyncView extends ItemView {
 					.setButtonText("Resolve conflict")
 					.setCta()
 					.onClick(() => void this.plugin.openConflictModal())
+				);
+		} else if (model.primaryAction === "clearExternalWriteBlock") {
+			new Setting(container).addButton((btn) =>
+				btn
+					.setButtonText("Clear generated-write block")
+					.setDestructive()
+					.onClick(() => void this.plugin.clearExternalWriteBlock())
 			);
 		} else {
 			new Setting(container).addButton((btn) =>

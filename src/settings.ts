@@ -31,6 +31,19 @@ import {
 	type TokenSettingRenderers,
 } from "./ui/modals";
 import type HalyardSyncPlugin from "./main";
+import {
+	type ManagedIgnoreClaim,
+} from "./sync/ignore-claims";
+export type { ManagedIgnoreClaim } from "./sync/ignore-claims";
+
+export interface ExternalWriteBlock {
+	ownerId: string;
+	paths: string[];
+	at: number;
+	message: string;
+}
+
+export { effectiveIgnoreGlobs } from "./sync/ignore-claims";
 
 export interface HalyardSyncSettings extends ScheduleOptions {
 	remoteUrl: string;
@@ -40,6 +53,10 @@ export interface HalyardSyncSettings extends ScheduleOptions {
 	authorName: string;
 	authorEmail: string;
 	ignoreGlobs: string[];
+	/** Exclusions owned by another plugin, keyed by stable owner id. */
+	managedIgnoreClaims: Record<string, ManagedIgnoreClaim>;
+	/** Failed external writes that block automatic and manual sync until reviewed. */
+	externalWriteBlocks: Record<string, ExternalWriteBlock>;
 	/** Username sent with a PAT on generic hosts. */
 	genericUsername: string;
 	/** Origin of a self-managed GitLab instance ("" = none). */
@@ -87,6 +104,8 @@ export function defaultSettings(isMobile: boolean): HalyardSyncSettings {
 		authorName: "Halyard Sync",
 		authorEmail: "halyard-sync@localhost",
 		ignoreGlobs: [],
+		managedIgnoreClaims: {},
+		externalWriteBlocks: {},
 		genericUsername: "oauth2",
 		gitlabSelfManagedBase: "",
 		giteaSelfManagedBase: "",
@@ -337,6 +356,21 @@ export class HalyardSyncSettingTab extends PluginSettingTab {
 					key: "ignoreGlobs",
 					rows: 4,
 					placeholder: "attachments/large/\n*.psd",
+				},
+			},
+			{
+				name: "Managed exclusions",
+				desc: "Exclusions owned by other plugins. Change these in the owning plugin.",
+				render: (setting: Setting) => {
+					const claims = this.plugin.getManagedIgnoreClaims();
+					const rows = Object.entries(claims).flatMap(([ownerId, claim]) =>
+						claim.patterns.map((pattern) => `${ownerId} — ${claim.label}: ${pattern}`)
+					);
+					setting.setDesc(
+						rows.length > 0
+							? `Read-only managed exclusions\n${rows.join("\n")}`
+							: "None."
+					);
 				},
 			},
 			{

@@ -70,6 +70,11 @@ export function statusBarView(
 				text: "⟳ syncing",
 				tooltip: event.reason !== null ? `Syncing (${event.reason})…` : "Syncing…",
 			};
+		case "external-write":
+			return {
+				text: "⟳ generated write",
+				tooltip: event.message ?? "A generated file update is in progress…",
+			};
 		case "conflict":
 			return {
 				text: "⚠ conflict",

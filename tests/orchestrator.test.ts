@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { AheadBehind, FilterCheckResult, MergeOutcome } from "../src/git/engine";
 import { AsyncLock } from "../src/sync/async-lock";
 import type { ConflictResult, ConflictStrategyName } from "../src/sync/conflicts";
+import type { ExternalWriteBlock } from "../src/settings";
 import {
 	describeBranchMismatch,
 	describeMissingUpstreamBranch,
@@ -121,6 +122,7 @@ function makeOrchestrator(
 		now?: () => number;
 		initialHistory?: SyncHistoryEntry[];
 		onHistoryEntry?: (history: readonly SyncHistoryEntry[]) => void;
+		onExternalWriteBlockChange?: (blocks: Readonly<Record<string, ExternalWriteBlock>>) => void;
 	}
 ) {
 	const { calls, engine } = makeEngine(scenario);
@@ -141,6 +143,7 @@ function makeOrchestrator(
 		now: options?.now ?? (() => 1_700_000_000_000),
 		initialHistory: options?.initialHistory,
 		onHistoryEntry: options?.onHistoryEntry,
+		onExternalWriteBlockChange: options?.onExternalWriteBlockChange,
 	});
 	orchestrator.on((event) => events.push(event));
 	return { calls, conflicts, events, orchestrator, pauseAutoSyncCalls: () => pauseAutoSyncCalls };
@@ -482,6 +485,112 @@ describe("SyncOrchestrator decision table", () => {
 		expect(orchestrator.history).toHaveLength(1);
 		expect(orchestrator.history[0]?.outcome).toBe("error");
 		expect(orchestrator.history[0]?.message).toContain("git-crypt");
+	});
+});
+
+describe("external write batches", () => {
+	it("serializes concurrent batches and runs one sync after the whole queue completes", async () => {
+		const { orchestrator, calls } = makeOrchestrator({
+			commitOid: "generated",
+			remoteOid: "remote",
+			trackingOid: "remote",
+			localOid: "generated",
+		});
+		const order: string[] = [];
+		let releaseFirst!: () => void;
+		const firstGate = new Promise<void>((resolve) => {
+			releaseFirst = resolve;
+		});
+		const first = orchestrator.runExternalWriteBatch(
+			{ ownerId: "fetch:source:first", paths: ["Sources/first/"], syncOnSuccess: true },
+			async () => {
+				order.push("first-start");
+				await firstGate;
+				order.push("first-end");
+			}
+		);
+		const second = orchestrator.runExternalWriteBatch(
+			{ ownerId: "fetch:source:second", paths: ["Sources/second/"], syncOnSuccess: false },
+			async () => {
+				order.push("second-start");
+				order.push("second-end");
+			}
+		);
+
+		await Promise.resolve();
+		expect(order).toEqual(["first-start"]);
+		releaseFirst();
+		await Promise.all([first, second]);
+		await drain(orchestrator);
+
+		expect(order).toEqual(["first-start", "first-end", "second-start", "second-end"]);
+		expect(calls.filter((call) => call === "stageAndCommit")).toHaveLength(1);
+	});
+
+	it("coalesces requests and runs one post-write sync after shared output succeeds", async () => {
+		const { orchestrator, calls } = makeOrchestrator({
+			commitOid: "generated",
+			remoteOid: "remote",
+			trackingOid: "remote",
+			localOid: "generated",
+		});
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const batch = orchestrator.runExternalWriteBatch(
+			{ ownerId: "fetch:source:ledger", paths: ["Sources/ledger/"], syncOnSuccess: true },
+			async () => {
+				await gate;
+				return "ok";
+			}
+		);
+
+		orchestrator.requestSync("interval");
+		orchestrator.requestSync("manual");
+		expect(orchestrator.status.state).toBe("external-write");
+		release();
+		await expect(batch).resolves.toBe("ok");
+		await drain(orchestrator);
+
+		expect(calls.filter((call) => call === "stageAndCommit")).toHaveLength(1);
+		expect(orchestrator.status.state).toBe("idle");
+	});
+
+	it("does not start an automatic sync after a local-cache write", async () => {
+		const { orchestrator, calls } = makeOrchestrator({});
+		await orchestrator.runExternalWriteBatch(
+			{ ownerId: "fetch:source:private", paths: ["Private/"], syncOnSuccess: false },
+			async () => "ok"
+		);
+		await drain(orchestrator);
+		expect(calls).not.toContain("stageAndCommit");
+		expect(orchestrator.status.message).toBe("Generated write complete.");
+	});
+
+	it("persists a failure block and refuses later sync requests until cleared", async () => {
+		const blocks: Array<Readonly<Record<string, ExternalWriteBlock>>> = [];
+		const { orchestrator, calls } = makeOrchestrator({
+			commitOid: "should-not-run",
+		}, {
+			onExternalWriteBlockChange: (next) => blocks.push(next),
+		});
+		await expect(
+			orchestrator.runExternalWriteBatch(
+				{ ownerId: "fetch:source:ledger", paths: ["Sources/ledger/"], syncOnSuccess: true },
+				async () => {
+					throw new Error("materialize failed");
+				}
+			)
+		).rejects.toThrow("materialize failed");
+
+		orchestrator.requestSync("manual");
+		await drain(orchestrator);
+		expect(orchestrator.status.state).toBe("blocked");
+		expect(calls).not.toContain("stageAndCommit");
+		expect(blocks[blocks.length - 1]).toHaveProperty("fetch:source:ledger");
+		await orchestrator.clearExternalWriteBlock("fetch:source:ledger");
+		expect(orchestrator.hasExternalWriteBlock).toBe(false);
 	});
 });
 

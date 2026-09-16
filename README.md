@@ -55,6 +55,22 @@ Basic-auth convention requires for pull requests even though git sync itself doe
 - `.obsidian/workspace*` and `.trash/` never sync. Add your own ignore globs as
   needed.
 
+### Generated content and managed exclusions
+
+Halyard Sync supports both generated-content topologies. A producer plugin such
+as Halyard Fetch can claim a folder as a local cache, keeping it out of commits,
+or release that claim and write the completed result through Sync for other
+devices to pull. Managed exclusions appear separately from your own ignore
+patterns in Settings, with the owning plugin and label shown.
+
+Generated writes use an external-write batch. Sync waits for the complete write
+before staging, then queues one sync only after success. If materialization
+fails, automatic and manual sync are blocked until the producer retries
+successfully or you clear the block from the sync panel after reviewing the
+destination. A broader user ignore such as `Sources/` can still exclude a
+shared destination; the producer receives that pattern as a diagnostic, and
+the user pattern remains under their control.
+
 ## Platform support
 
 | | Desktop (Win/macOS/Linux) | Mobile (iOS/Android) |

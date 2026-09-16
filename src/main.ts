@@ -30,7 +30,11 @@ import {
 	defaultSettings,
 	HalyardSyncSettingTab,
 	type HalyardSyncSettings,
+	type ManagedIgnoreClaim,
+	type ExternalWriteBlock,
+	effectiveIgnoreGlobs,
 } from "./settings";
+import { findExcludingPatterns } from "./sync/ignore-claims";
 import { registerHalyardSyncIcon, HALYARD_SYNC_ICON_ID } from "./ui/icon";
 import { ConflictModal, SetupWizardModal, SyncHistoryModal } from "./ui/modals";
 import { StatusBarController, statusBarView, type SetupState } from "./ui/statusbar";
@@ -39,6 +43,36 @@ import { HALYARD_SYNC_VIEW_TYPE, HalyardSyncView } from "./ui/sync-view";
 /** data.json shape. `fallbackSecrets` exists only when SecretStorage is unavailable. */
 interface SavedData extends HalyardSyncSettings {
 	fallbackSecrets?: Record<string, string>;
+}
+
+function normalizeManagedIgnoreClaims(value: unknown): Record<string, ManagedIgnoreClaim> {
+	if (value === null || typeof value !== "object") return {};
+	const claims: Record<string, ManagedIgnoreClaim> = {};
+	for (const [ownerId, raw] of Object.entries(value)) {
+		if (raw === null || typeof raw !== "object") continue;
+		const candidate = raw as { label?: unknown; patterns?: unknown };
+		if (typeof candidate.label !== "string" || !Array.isArray(candidate.patterns)) continue;
+		const patterns = candidate.patterns.filter((pattern): pattern is string => typeof pattern === "string");
+		if (patterns.length > 0) claims[ownerId] = { label: candidate.label, patterns: [...new Set(patterns)] };
+	}
+	return claims;
+}
+
+function normalizeExternalWriteBlocks(value: unknown): Record<string, ExternalWriteBlock> {
+	if (value === null || typeof value !== "object") return {};
+	const blocks: Record<string, ExternalWriteBlock> = {};
+	for (const [ownerId, raw] of Object.entries(value)) {
+		if (raw === null || typeof raw !== "object") continue;
+		const candidate = raw as { paths?: unknown; at?: unknown; message?: unknown };
+		if (
+			!Array.isArray(candidate.paths) ||
+			typeof candidate.at !== "number" ||
+			typeof candidate.message !== "string"
+		) continue;
+		const paths = candidate.paths.filter((path): path is string => typeof path === "string");
+		blocks[ownerId] = { ownerId, paths, at: candidate.at, message: candidate.message };
+	}
+	return blocks;
 }
 
 /** Outcome of `HalyardSyncPlugin.testConnection` — see `ui/modals.ts`. */
@@ -99,6 +133,8 @@ export default class HalyardSyncPlugin extends Plugin {
 	 * `.git` out from under it mid-operation.
 	 */
 	private readonly engineLock = new AsyncLock();
+	private readonly settingsLock = new AsyncLock();
+	readonly externalInteropVersion = 2 as const;
 	private unsubscribeRibbon: (() => void) | null = null;
 
 	async onload(): Promise<void> {
@@ -157,6 +193,12 @@ export default class HalyardSyncPlugin extends Plugin {
 				await this.persist();
 			},
 			initialHistory: this.settings.syncHistory,
+			initialExternalWriteBlocks: this.settings.externalWriteBlocks,
+			getAutoSyncPaused: () => this.settings.autoSyncPaused,
+			onExternalWriteBlockChange: async (blocks) => {
+				this.settings.externalWriteBlocks = { ...blocks };
+				await this.persist();
+			},
 			onHistoryEntry: async (history) => {
 				this.settings.syncHistory = [...history];
 				await this.persist();
@@ -165,7 +207,7 @@ export default class HalyardSyncPlugin extends Plugin {
 
 		this.scheduler = new SyncScheduler({
 			requestSync: (reason) => {
-				if (this.isConfigured()) this.orchestrator.requestSync(reason);
+				if (this.isConfigured()) this.requestSync(reason);
 			},
 			getOptions: () => this.settings,
 			getLastSyncAt: () => this.settings.lastSyncAt,
@@ -328,12 +370,24 @@ export default class HalyardSyncPlugin extends Plugin {
 		const saved = ((await this.loadData()) ?? {}) as Partial<SavedData>;
 		const { fallbackSecrets, ...rest } = saved;
 		this.fallbackSecrets = fallbackSecrets ?? {};
-		this.settings = { ...defaultSettings(this.isMobile), ...rest };
+		this.settings = {
+			...defaultSettings(this.isMobile),
+			...rest,
+			managedIgnoreClaims: normalizeManagedIgnoreClaims(rest.managedIgnoreClaims),
+			externalWriteBlocks: normalizeExternalWriteBlocks(rest.externalWriteBlocks),
+		};
 	}
 
 	/** Save settings and re-apply anything derived from them. */
 	async saveSettings(): Promise<void> {
-		await this.persist();
+		await this.settingsLock.run(async () => {
+			await this.persist();
+			await this.updateBuiltEngineOptions();
+		});
+		this.scheduler.applyOptions();
+	}
+
+	private async updateBuiltEngineOptions(): Promise<void> {
 		// Update an already-built engine in place rather than tearing it down:
 		// rebuilding would reload the compiled WASM module and re-hydrate the
 		// whole vault, which every keystroke in (e.g.) the ignore-globs
@@ -342,22 +396,23 @@ export default class HalyardSyncPlugin extends Plugin {
 		// anyway.
 		if (this.enginePromise !== null) {
 			const pending = this.enginePromise;
-			void pending
-				.then((engine) =>
-					engine.updateOptions({
-						author: {
-							name: this.settings.authorName,
-							email: this.settings.authorEmail,
-						},
-						ignoreGlobs: this.settings.ignoreGlobs,
-						autoMergeOverlappingEdits: this.settings.autoMergeOverlappingEdits,
-					})
-				)
-				.catch(() => {
-					// Engine failed to build in the first place — nothing to update.
+			try {
+				const engine = await pending;
+				engine.updateOptions({
+					author: {
+						name: this.settings.authorName,
+						email: this.settings.authorEmail,
+					},
+					ignoreGlobs: effectiveIgnoreGlobs(
+						this.settings.ignoreGlobs,
+						this.settings.managedIgnoreClaims
+					),
+					autoMergeOverlappingEdits: this.settings.autoMergeOverlappingEdits,
 				});
+			} catch {
+				// Engine failed to build in the first place — nothing to update.
+			}
 		}
-		this.scheduler.applyOptions();
 	}
 
 	/**
@@ -368,14 +423,83 @@ export default class HalyardSyncPlugin extends Plugin {
 	 * plain method another plugin can feature-detect via
 	 * `app.plugins.plugins["halyard-sync"]`.
 	 *
-	 * Additive and idempotent only: never removes an existing pattern, since
-	 * one caller asking to exclude a path is never grounds to stop excluding
-	 * something else. Returns whether the pattern was newly added.
+	 * Legacy callers are grouped under one managed owner. New integrations should
+	 * use setExternalIgnoreClaim(), which has replacement and exact-migration
+	 * semantics.
 	 */
+	async setExternalIgnoreClaim(input: {
+		ownerId: string;
+		label: string;
+		patterns: string[];
+		removeExactLegacyPatterns?: string[];
+		diagnosticPatterns?: string[];
+	}): Promise<{ stillExcludedBy: string[] }> {
+		return this.settingsLock.run(async () => {
+			const oldClaims = this.settings.managedIgnoreClaims;
+			const claims: Record<string, ManagedIgnoreClaim> = { ...oldClaims };
+			const patterns = [...new Set(input.patterns)];
+			if (patterns.length === 0) delete claims[input.ownerId];
+			else {
+				claims[input.ownerId] = {
+					label: input.label,
+					patterns,
+				};
+			}
+			const removals = new Set(input.removeExactLegacyPatterns ?? []);
+			const ignoreGlobs = this.settings.ignoreGlobs.filter((pattern) => !removals.has(pattern));
+			if (
+				JSON.stringify(claims) !== JSON.stringify(oldClaims) ||
+				ignoreGlobs.length !== this.settings.ignoreGlobs.length
+			) {
+				this.settings.ignoreGlobs = ignoreGlobs;
+				this.settings.managedIgnoreClaims = claims;
+				await this.persist();
+				await this.updateBuiltEngineOptions();
+			}
+			return {
+				stillExcludedBy: findExcludingPatterns(
+					input.diagnosticPatterns ?? (patterns.length > 0
+						? patterns
+						: input.removeExactLegacyPatterns ?? []),
+					this.settings.ignoreGlobs,
+					Object.entries(claims)
+						.filter(([ownerId]) => ownerId !== input.ownerId)
+						.flatMap(([, claim]) => claim.patterns)
+				),
+			};
+		});
+	}
+
+	async runExternalWriteBatch<T>(
+		input: { ownerId: string; paths: string[]; syncOnSuccess: boolean },
+		operation: () => Promise<T>
+	): Promise<T> {
+		return this.orchestrator.runExternalWriteBatch(input, operation);
+	}
+
+	async clearExternalWriteBlock(ownerId?: string): Promise<void> {
+		await this.orchestrator.clearExternalWriteBlock(ownerId);
+	}
+
+	getManagedIgnoreClaims(): Record<string, ManagedIgnoreClaim> {
+		return Object.fromEntries(
+			Object.entries(this.settings.managedIgnoreClaims).map(([ownerId, claim]) => [
+				ownerId,
+				{ label: claim.label, patterns: [...claim.patterns] },
+			])
+		);
+	}
+
+	/** Compatibility adapter for Halyard Fetch releases predating interop v2. */
 	async registerExternalIgnorePattern(pattern: string): Promise<boolean> {
-		if (this.settings.ignoreGlobs.includes(pattern)) return false;
-		this.settings.ignoreGlobs = [...this.settings.ignoreGlobs, pattern];
-		await this.saveSettings();
+		const ownerId = "halyard-sync:legacy-external";
+		const current = this.settings.managedIgnoreClaims[ownerId]?.patterns ?? [];
+		if (current.includes(pattern) || this.settings.ignoreGlobs.includes(pattern)) return false;
+		await this.setExternalIgnoreClaim({
+			ownerId,
+			label: "Legacy external plugin exclusions",
+			patterns: [...current, pattern],
+		});
 		return true;
 	}
 
@@ -424,7 +548,10 @@ export default class HalyardSyncPlugin extends Plugin {
 				name: this.settings.authorName,
 				email: this.settings.authorEmail,
 			},
-			ignoreGlobs: this.settings.ignoreGlobs,
+			ignoreGlobs: effectiveIgnoreGlobs(
+				this.settings.ignoreGlobs,
+				this.settings.managedIgnoreClaims
+			),
 			autoMergeOverlappingEdits: this.settings.autoMergeOverlappingEdits,
 			ownDataPath: this.manifest.dir ? normalizePath(`${this.manifest.dir}/data.json`) : undefined,
 			configDir: this.app.vault.configDir,
@@ -497,6 +624,7 @@ export default class HalyardSyncPlugin extends Plugin {
 			},
 			currentBranch: async () => (await this.getEngine()).currentBranch(),
 			getChangedFiles: async () => (await this.getEngine()).getChangedFiles(),
+			getIgnoredChangedFiles: async () => (await this.getEngine()).getIgnoredChangedFiles(),
 			stageAndCommit: async (message) => (await this.getEngine()).stageAndCommit(message),
 			listRemoteRef: async (branch) => {
 				const engine = await this.getEngine();
@@ -699,6 +827,10 @@ export default class HalyardSyncPlugin extends Plugin {
 			: { url: raw, convertedFromSsh: false };
 	}
 
+	private requestSync(reason: string): void {
+		this.orchestrator.requestSync(reason);
+	}
+
 	syncNow(): void {
 		if (!this.isConfigured()) {
 			new Notice("Halyard Sync: not configured yet — opening the setup wizard.");
@@ -716,7 +848,7 @@ export default class HalyardSyncPlugin extends Plugin {
 				);
 				return;
 			}
-			this.orchestrator.requestSync("manual");
+			this.requestSync("manual");
 		});
 	}
 
@@ -909,7 +1041,7 @@ export default class HalyardSyncPlugin extends Plugin {
 		// happen now. Its actual outcome (including a blocked/locked/conflict
 		// state) surfaces through the normal status bar and sync panel, not
 		// through this call — see the doc comment above.
-		this.orchestrator.requestSync("manual");
+		this.requestSync("manual");
 	}
 
 	/** Seed ignores for files that must never sync (see DESIGN.md). Mirrors

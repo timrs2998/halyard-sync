@@ -44,7 +44,7 @@ export interface SyncPanelViewModel {
 	 * ONLY conflict resolution, an incomplete setup offers ONLY the wizard —
 	 * neither ever shows alongside "sync now" — see `main.ts`'s
 	 * `setupRibbonIcon`. */
-	primaryAction: "sync" | "resolveConflict" | "setup";
+	primaryAction: "sync" | "resolveConflict" | "clearExternalWriteBlock" | "setup";
 	/** Only meaningful when `primaryAction` is "setup" — distinguishes
 	 * "never started" from "started but never finished" wording. */
 	setupButtonText: "Run setup wizard" | "Continue setup";
@@ -59,17 +59,25 @@ export function buildSyncPanelViewModel(
 	now: number,
 	nextFireAt: number | null,
 	isPaused: boolean,
-	setupState: SetupState
+	setupState: SetupState,
+	hasExternalWriteBlock = false
 ): SyncPanelViewModel {
 	const view = statusBarView(event, now, isPaused, setupState);
 	const syncing =
+		event.state === "external-write" ||
 		event.state === "staging" ||
 		event.state === "fetching" ||
 		event.state === "integrating" ||
 		event.state === "pushing";
 	const ordered = [...history].reverse();
 	const primaryAction =
-		setupState !== "ready" ? "setup" : event.state === "conflict" ? "resolveConflict" : "sync";
+		setupState !== "ready"
+			? "setup"
+			: event.state === "conflict"
+				? "resolveConflict"
+				: hasExternalWriteBlock
+					? "clearExternalWriteBlock"
+					: "sync";
 	return {
 		headline: view.text,
 		detail: view.tooltip,

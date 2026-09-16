@@ -62,6 +62,7 @@ describe("Halyard Sync's settings tab", function () {
 		expect(names).toContain("Remote repository");
 		expect(names).toContain("Branch");
 		expect(names).toContain("Ignore patterns");
+		expect(names).toContain("Managed exclusions");
 		expect(names).toContain("Provider");
 		expect(names).toContain("On conflict");
 		expect(names).toContain("Re-clone vault");

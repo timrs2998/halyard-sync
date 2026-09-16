@@ -429,31 +429,31 @@ notice degrades to "conflict branch pushed — open a PR manually", never losing
 
 What gets tracked is everything in the vault except: `DEFAULT_IGNORES`
 (`git/engine.ts`) — `.obsidian/workspace*` and `.trash/`, both device-local and
-never meaningful to sync — plus this plugin's own `data.json` (`ownDataPath`,
-always excluded since it rewrites itself on every sync and would otherwise look
-like a permanent local change), plus whatever the user adds to `ignoreGlobs` in
-settings. `GitEngine.getChangedFiles()` is the one place `ignoreFilter` is
-consulted (`engine.ts:804`) — it gates what can ever be staged/committed, not
-what a checkout/merge restores, which matters for the guarantee below.
+never meaningful to sync — this plugin's own `data.json` (`ownDataPath`),
+user-entered `ignoreGlobs`, and owner-scoped managed exclusions. The settings UI
+shows user patterns separately from managed exclusions so the owning plugin is
+visible and can replace its complete claim without accumulating stale paths.
+The engine receives the deduplicated union of user and managed patterns.
 
-**`registerExternalIgnorePattern(pattern: string): Promise<boolean>`** (public
-method on `HalyardSyncPlugin`, `main.ts`) is an integration point other vault
-plugins can feature-detect via `app.plugins.plugins["halyard-sync"]` and call to
-get their own managed folder/file excluded, without the user having to
-hand-configure `ignoreGlobs` themselves. Additive and idempotent — it only ever
-appends a new pattern, never removes one, since one caller's request is never
-grounds to un-exclude something else. [Halyard Fetch](https://github.com/timrs2998/halyard-fetch)
-is the first (and so far only) consumer: it registers each source's
-destination folder, and its own `data.json` (which can hold plaintext fallback
-tokens when `secretStorage` is unavailable), before that folder is ever
-populated, which is why the ordering matters. Because `ignoreFilter` only ever gates staging, a path
-excluded from before its first write is never part of any commit's tree on any
-device, which is the actual mechanism that rules out a checkout/merge on one
-device racing a mid-materialize write from another plugin on the same vault —
-there's nothing in any tree for a checkout to restore or delete. This doesn't
-retroactively fix a path that was already tracked before the pattern was
-registered; that needs a one-time manual untrack, deliberately not automated
-here given how hard-to-reverse history-rewriting operations are.
+External plugins feature-detect the v2 surface on
+`app.plugins.plugins["halyard-sync"]`:
+
+- `externalInteropVersion` is `2`.
+- `setExternalIgnoreClaim()` replaces one owner's claim, optionally removing
+  only exact legacy entries from `ignoreGlobs`, and reports remaining matching
+  user/managed exclusions. Callers may supply separate diagnostic patterns when
+  releasing their own claim. Broader patterns are never removed automatically.
+- `runExternalWriteBatch()` holds the same vault-wide engine lock used by git,
+  coalesces sync requests while generated files are materialized, and requests
+  one post-write sync only after success.
+
+`registerExternalIgnorePattern()` remains as a compatibility adapter and maps
+legacy callers into a managed owner. Halyard Fetch's token-bearing `data.json`
+must remain managed/excluded in every distribution mode. A failed external
+write persists a block and prevents automatic or manual sync until a retry
+succeeds or the user clears the block after reviewing the destination. Ignored
+working-tree changes are surfaced in sync status/history instead of appearing
+as an unexplained successful no-op.
 
 ## Tooling
 

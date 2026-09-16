@@ -56,11 +56,24 @@ describe("buildSyncPanelViewModel", () => {
 	});
 
 	it("flags syncing for every active-sync state", () => {
-		for (const state of ["staging", "fetching", "integrating", "pushing"] as const) {
+		for (const state of ["staging", "fetching", "integrating", "pushing", "external-write"] as const) {
 			const model = buildSyncPanelViewModel(event({ state }), [], 0, null, false, "ready");
 			expect(model.syncing).toBe(true);
 			expect(model.primaryAction).toBe("sync");
 		}
+	});
+
+	it("offers a clear action for a persisted external-write block", () => {
+		const model = buildSyncPanelViewModel(
+			event({ state: "blocked", message: "external write failed" }),
+			[],
+			0,
+			null,
+			false,
+			"ready",
+			true
+		);
+		expect(model.primaryAction).toBe("clearExternalWriteBlock");
 	});
 
 	it("routes to resolveConflict only in the conflict state, never alongside sync", () => {

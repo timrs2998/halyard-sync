@@ -154,6 +154,12 @@ export interface ChangedFile {
 	status: ChangeStatus;
 }
 
+export interface ChangedFilesResult {
+	changes: ChangedFile[];
+	/** Working-tree paths that changed but were rejected by the ignore filter. */
+	ignoredPaths: string[];
+}
+
 /**
  * Classify one `StatusEntry` into the staging action needed to make the
  * index mirror the working tree. Deliberately only inspects the WT_* bits
@@ -581,6 +587,7 @@ export class GitEngine {
 	private repo: Libgit2Repository | null = null;
 	private closed = false;
 	private ignoreFilter: (filepath: string) => boolean;
+	private lastIgnoredPaths: string[] = [];
 
 	constructor(private readonly opts: GitEngineOptions) {
 		this.ignoreFilter = createIgnoreFilter(
@@ -847,12 +854,25 @@ export class GitEngine {
 	 * engine construction.
 	 */
 	async getChangedFiles(): Promise<ChangedFile[]> {
+		return (await this.getChangedFilesDetail()).changes;
+	}
+
+	async getChangedFilesDetail(): Promise<ChangedFilesResult> {
 		const repo = await this.ensureRepo();
 		this.opts.mirror.reset();
 		await this.opts.mirror.hydrateAll(this.opts.adapter);
 		const entries = await repo.status();
+		const ignored = entries
+			.filter((e) => this.ignoreFilter(e.path) && classifyStatusEntry(e) !== null)
+			.map((e) => e.path);
 		const filtered = entries.filter((e) => !this.ignoreFilter(e.path));
-		return classifyStatusEntries(filtered);
+		const changes = classifyStatusEntries(filtered);
+		this.lastIgnoredPaths = ignored;
+		return { changes, ignoredPaths: [...ignored] };
+	}
+
+	getIgnoredChangedFiles(): string[] {
+		return [...this.lastIgnoredPaths];
 	}
 
 	/**
@@ -861,7 +881,7 @@ export class GitEngine {
 	 */
 	async stageAndCommit(message: string): Promise<string | null> {
 		const repo = await this.ensureRepo();
-		const changes = await this.getChangedFiles();
+		const changes = (await this.getChangedFilesDetail()).changes;
 		if (changes.length === 0) return null;
 		for (const change of changes) {
 			if (change.status === "deleted") {
