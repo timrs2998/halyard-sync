@@ -34,6 +34,12 @@ import type HalyardSyncPlugin from "./main";
 import {
 	type ManagedIgnoreClaim,
 } from "./sync/ignore-claims";
+import {
+	DEFAULT_COMMUNITY_PLUGINS_SYNC_MODE,
+	type CommunityPluginsSyncMode,
+	type PluginPolicyStatus,
+	type PluginSyncMode,
+} from "./sync/plugin-policy";
 export type { ManagedIgnoreClaim } from "./sync/ignore-claims";
 
 export interface ExternalWriteBlock {
@@ -53,6 +59,16 @@ export interface HalyardSyncSettings extends ScheduleOptions {
 	authorName: string;
 	authorEmail: string;
 	ignoreGlobs: string[];
+	/** Desired per-plugin distribution policy; applied to the vault by migration. */
+	pluginSyncPolicies: Record<string, PluginSyncMode>;
+	/** Whether the enabled community-plugin list is shared by this vault. */
+	communityPluginsSync: CommunityPluginsSyncMode;
+	/** True after this feature has reconciled its desired policy with the vault. */
+	pluginPolicyInitialized: boolean;
+	/** Records that the explicit policy migration still needs attention. */
+	pluginPolicyMigrationPending: boolean;
+	/** Allows ordinary sync to recover after a migration commit's push failed. */
+	pluginPolicyMigrationPushPending: boolean;
 	/** Exclusions owned by another plugin, keyed by stable owner id. */
 	managedIgnoreClaims: Record<string, ManagedIgnoreClaim>;
 	/** Failed external writes that block automatic and manual sync until reviewed. */
@@ -104,6 +120,11 @@ export function defaultSettings(isMobile: boolean): HalyardSyncSettings {
 		authorName: "Halyard Sync",
 		authorEmail: "halyard-sync@localhost",
 		ignoreGlobs: [],
+		pluginSyncPolicies: {},
+		communityPluginsSync: DEFAULT_COMMUNITY_PLUGINS_SYNC_MODE,
+		pluginPolicyInitialized: false,
+		pluginPolicyMigrationPending: false,
+		pluginPolicyMigrationPushPending: false,
 		managedIgnoreClaims: {},
 		externalWriteBlocks: {},
 		genericUsername: "oauth2",
@@ -187,6 +208,9 @@ export class HalyardSyncSettingTab extends PluginSettingTab {
 	/** Same pattern for "is a token already saved for this host?". */
 	private hasSavedToken = false;
 	private tokenChecked = false;
+	private pluginPolicyStatus: PluginPolicyStatus | null | undefined = undefined;
+	private pluginPolicyLoading = false;
+	private pluginPolicyError: string | null = null;
 
 	constructor(app: App, private readonly plugin: HalyardSyncPlugin) {
 		super(app, plugin);
@@ -198,6 +222,7 @@ export class HalyardSyncSettingTab extends PluginSettingTab {
 			// settings convention is that a tab's primary settings sit
 			// directly under the tab title.
 			...this.generalItems(),
+			{ type: "group", heading: "Plugin sync", items: this.pluginPolicyItems() },
 			{ type: "group", heading: "Account", items: this.accountItems() },
 			{ type: "group", heading: "Encryption (git-crypt)", items: this.encryptionItems() },
 			{ type: "group", heading: "Sync", items: this.syncItems() },
@@ -381,6 +406,183 @@ export class HalyardSyncSettingTab extends PluginSettingTab {
 			{ name: "Commit author name", control: { type: "text", key: "authorName" } },
 			{ name: "Commit author email", control: { type: "text", key: "authorEmail" } },
 		];
+	}
+
+	// -- Plugin sync ----------------------------------------------------------
+
+	private pluginPolicyItems(): SettingGroupItem[] {
+		if (this.pluginPolicyStatus === undefined && !this.pluginPolicyLoading) {
+			this.pluginPolicyLoading = true;
+			void this.plugin.getPluginPolicyStatus()
+				.then((status) => {
+					this.pluginPolicyStatus = status;
+					this.pluginPolicyError = null;
+				})
+				.catch((err) => {
+					this.pluginPolicyStatus = null;
+					this.pluginPolicyError = errorText(err);
+				})
+				.finally(() => {
+					this.pluginPolicyLoading = false;
+					this.update();
+				});
+		}
+
+		const items: SettingGroupItem[] = [
+			{
+				name: "How plugin policies work",
+				desc:
+					"These choices describe one vault-wide repository policy. Device-local " +
+					"does not act as a per-device pull filter, and files already tracked by " +
+					"Git keep syncing until you explicitly migrate them below. Local files " +
+					"are preserved during migration.",
+			},
+			{
+				name: "Enabled plugin list",
+				desc:
+					`Share ${this.app.vault.configDir}/community-plugins.json so every device enables the ` +
+					"same plugins, or keep that list local on each device.",
+				render: (setting: Setting) => {
+					setting.addDropdown((dropdown) =>
+						dropdown
+							.addOptions({
+								shared: "Share enabled list",
+								"device-local": "Keep list local",
+							})
+							.setValue(this.plugin.getCommunityPluginsSyncMode())
+							.onChange((value) => {
+								void this.plugin
+									.setCommunityPluginsSyncMode(value as CommunityPluginsSyncMode)
+									.then(() => this.refreshPluginPolicyStatus())
+									.catch((err) => new Notice(`Halyard Sync: ${errorText(err)}`));
+							})
+					);
+				},
+			},
+		];
+
+		if (this.pluginPolicyStatus === undefined) {
+			items.push({ name: this.pluginPolicyLoading ? "Checking repository policy…" : "Repository policy unavailable" });
+		} else if (this.pluginPolicyStatus === null) {
+			items.push({
+				name: "Repository policy unavailable",
+				desc: this.pluginPolicyError ?? "Halyard Sync could not read the repository policy.",
+			});
+		} else {
+			items.push(this.pluginPolicyStatusItem(this.pluginPolicyStatus));
+		}
+
+		const plugins = this.plugin.getInstalledCommunityPlugins();
+		if (plugins.length === 0) {
+			items.push({ name: "No installed community plugins found." });
+		} else {
+			for (const plugin of plugins) items.push(this.pluginPolicyItem(plugin.id, plugin.name));
+		}
+		return items;
+	}
+
+	private pluginPolicyStatusItem(status: PluginPolicyStatus): SettingGroupItem {
+		let desc: string;
+		if (!status.hasRepository) {
+			desc = "Finish repository setup before applying a policy.";
+		} else if (!status.pending) {
+			desc = "The repository's managed plugin policy is up to date.";
+		} else if (status.trackedPaths.length > 0) {
+			desc =
+				`${status.trackedPaths.length} path${status.trackedPaths.length === 1 ? " is" : "s are"} still tracked. ` +
+				"Review and confirm migration to remove them from the index; local files stay in place.";
+		} else if (status.pushPending) {
+			desc = "A migration commit exists locally but has not reached the remote. Retry the push below.";
+		} else {
+			desc = "Policy changes are waiting for an explicit migration and push.";
+		}
+		return {
+			name: status.pending ? "Policy migration pending" : "Policy applied",
+			desc,
+			render: (setting: Setting) => {
+				if (!status.pending || !status.hasRepository) return;
+				setting.addButton((button) =>
+					button
+						.setButtonText("Review and apply")
+						.setCta()
+						.onClick(() => void this.confirmPluginPolicyMigration())
+				);
+			},
+		};
+	}
+
+	private pluginPolicyItem(id: string, name: string): SettingGroupItem {
+		const isSelf = id === this.plugin.manifest.id;
+		return {
+			name,
+			desc: isSelf
+				? "Halyard Sync code is always shared; its operational data remains device-local."
+				: "Choose whether this plugin's code and standard data.json settings are shared.",
+			render: (setting: Setting) => {
+				if (isSelf) return;
+				setting.addDropdown((dropdown) =>
+					dropdown
+						.addOptions({
+							shared: "Share plugin + settings",
+							"code-only": "Share code; keep settings local",
+							"device-local": "Device-local plugin folder",
+						})
+						.setValue(this.plugin.getPluginSyncMode(id))
+						.onChange((value) => {
+							void this.plugin
+								.setPluginSyncMode(id, value as PluginSyncMode)
+								.then(() => this.refreshPluginPolicyStatus())
+								.catch((err) => new Notice(`Halyard Sync: ${errorText(err)}`));
+						})
+				);
+			},
+		};
+	}
+
+	private refreshPluginPolicyStatus(): void {
+		this.pluginPolicyStatus = undefined;
+		this.pluginPolicyLoading = false;
+		this.pluginPolicyError = null;
+		this.update();
+	}
+
+	private async confirmPluginPolicyMigration(): Promise<void> {
+		let status: PluginPolicyStatus;
+		try {
+			status = await this.plugin.getPluginPolicyStatus();
+		} catch (err) {
+			new Notice(`Halyard Sync: ${errorText(err)}`);
+			return;
+		}
+		if (!status.pending || !status.hasRepository) {
+			this.refreshPluginPolicyStatus();
+			return;
+		}
+		const paths = status.trackedPaths;
+		const pathSummary = paths.length > 0
+			? `\n\nTracked paths to remove from the index:\n${paths.slice(0, 30).join("\n")}${paths.length > 30 ? "\n…" : ""}`
+			: "\n\nNo matching paths remain in the local HEAD; this will retry or finish the policy commit/push.";
+		new ConfirmModal(this.app, {
+			title: "Apply vault-wide plugin policy?",
+			body:
+				"Halyard Sync will update its managed .gitignore block, remove the " +
+				"listed paths from Git's index, preserve their local files, commit the " +
+				"migration, and push it to the configured branch. This does not rewrite " +
+				"history. The policy applies to every device using this repository." +
+				pathSummary,
+			cta: "Apply and push policy",
+			destructive: true,
+			onConfirm: async () => {
+				try {
+					await this.plugin.applyPluginPolicy();
+					new Notice("Halyard Sync: plugin policy migration applied and pushed", 10_000);
+				} catch (err) {
+					new Notice(`Halyard Sync: policy migration incomplete — ${errorText(err)}`, 15_000);
+				} finally {
+					this.refreshPluginPolicyStatus();
+				}
+			},
+		}).open();
 	}
 
 	// -- Account ------------------------------------------------------------
@@ -789,4 +991,8 @@ export class HalyardSyncSettingTab extends PluginSettingTab {
 function nonNegative(value: unknown, fallback: number): number {
 	const parsed = Number(value);
 	return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+function errorText(err: unknown): string {
+	return err instanceof Error ? err.message : String(err);
 }

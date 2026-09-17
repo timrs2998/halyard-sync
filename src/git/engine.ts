@@ -35,9 +35,11 @@
 
 import {
 	type GitCryptFilterHooks,
+	type CommitMetadata as Libgit2CommitMetadata,
 	type Libgit2Author,
 	type Libgit2Module,
 	type Libgit2Repository,
+	type LatestCommitForPath,
 	Libgit2Error,
 	GIT_STATUS,
 	type NetworkCallbacks,
@@ -55,6 +57,15 @@ import type { DataAdapterLike } from "./fs-adapter";
 import type { RequestUrlLike } from "./http-client";
 import { decryptBlob, encryptBlob } from "./gitcrypt";
 import type { GitCryptKeyMaterial } from "../auth/secrets";
+import {
+	isManagedPluginPolicyBlockWellFormed,
+	deterministicPluginPolicyPatterns,
+	policyPatternsEqual,
+	readManagedPluginPolicyPatterns,
+	upsertManagedPluginPolicyBlock,
+} from "../sync/plugin-policy";
+
+export type CommitMetadata = Libgit2CommitMetadata;
 
 // ---------------------------------------------------------------------------
 // Ignore filter (pure)
@@ -133,6 +144,14 @@ function defaultIgnoresFor(configDir: string, ownDataPath?: string): string[] {
 	return ownDataPath !== undefined ? [...defaults, ownDataPath] : defaults;
 }
 
+function normalizeMigrationPath(path: string): string | null {
+	const normalized = String(path).replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+	if (normalized.length === 0) return null;
+	const parts = normalized.split("/");
+	if (parts.some((part) => part.length === 0 || part === "." || part === "..")) return null;
+	return parts.join("/");
+}
+
 export function createIgnoreFilter(
 	userGlobs: string[],
 	defaults: string[]
@@ -141,6 +160,17 @@ export function createIgnoreFilter(
 		.map((p) => p.replace(/\\/g, "/").replace(/^\.?\//, "").trim())
 		.filter((p) => p.length > 0);
 	return (filepath) => patterns.some((p) => matchPattern(p, filepath));
+}
+
+/** Managed plugin-policy paths are deterministic: directory entries end in
+ * `/`, while file entries must match exactly. Keep them separate from the
+ * deliberately prefix-oriented user ignore matcher above. */
+function createManagedPluginPolicyFilter(patterns: readonly string[]): (filepath: string) => boolean {
+	const exactPaths = new Set(patterns.filter((pattern) => !pattern.endsWith("/")));
+	const directories = patterns.filter((pattern) => pattern.endsWith("/"));
+	return (filepath) => exactPaths.has(filepath) || directories.some((directory) => (
+		filepath === directory.slice(0, -1) || filepath.startsWith(directory)
+	));
 }
 
 // ---------------------------------------------------------------------------
@@ -158,6 +188,18 @@ export interface ChangedFilesResult {
 	changes: ChangedFile[];
 	/** Working-tree paths that changed but were rejected by the ignore filter. */
 	ignoredPaths: string[];
+}
+
+export interface PluginPolicyMigrationResult {
+	/** New local commit, or null when a previous migration commit is awaiting push. */
+	commitOid: string | null;
+	/** Paths that were present in HEAD and selected for index removal. */
+	trackedPaths: string[];
+}
+
+interface PluginPolicySnapshot {
+	files: Map<string, Uint8Array>;
+	directories: Set<string>;
 }
 
 /**
@@ -456,6 +498,14 @@ export interface AheadBehind {
 	approximate: boolean;
 }
 
+/** Exact-path history result used by the read-only active-note details UI. */
+export type ActiveNoteGitDetailsResult =
+	| { kind: "available"; path: string; commit: CommitMetadata }
+	| { kind: "untracked"; path: string; message: string }
+	| { kind: "no-history"; path: string; message: string }
+	| { kind: "unavailable"; message: string }
+	| { kind: "error"; path: string; message: string };
+
 /**
  * Lightweight per-file signal for the conflict modal — not a real diff (no
  * diffing library, and a full diff viewer is more than a "which files, how
@@ -586,14 +636,10 @@ function gitCryptFilterHooks(keys: Map<string, GitCryptKeyMaterial>): GitCryptFi
 export class GitEngine {
 	private repo: Libgit2Repository | null = null;
 	private closed = false;
-	private ignoreFilter: (filepath: string) => boolean;
 	private lastIgnoredPaths: string[] = [];
+	private readonly pathHistoryCache = new Map<string, { headOid: string; result: LatestCommitForPath }>();
 
 	constructor(private readonly opts: GitEngineOptions) {
-		this.ignoreFilter = createIgnoreFilter(
-			opts.ignoreGlobs ?? [],
-			defaultIgnoresFor(opts.configDir, opts.ownDataPath)
-		);
 	}
 
 	/**
@@ -607,10 +653,6 @@ export class GitEngine {
 		if (patch.author !== undefined) this.opts.author = patch.author;
 		if (patch.ignoreGlobs !== undefined) {
 			this.opts.ignoreGlobs = patch.ignoreGlobs;
-			this.ignoreFilter = createIgnoreFilter(
-				patch.ignoreGlobs,
-				defaultIgnoresFor(this.opts.configDir, this.opts.ownDataPath)
-			);
 		}
 		if (patch.onAuth !== undefined) this.opts.onAuth = patch.onAuth;
 		if (patch.onProgress !== undefined) this.opts.onProgress = patch.onProgress;
@@ -769,6 +811,32 @@ export class GitEngine {
 	}
 
 	/**
+	 * Reads the latest commit that changed an exact vault-relative path. The
+	 * cache is keyed by both path and branch tip: ordinary panel re-renders do
+	 * not repeat a revwalk, while a commit, fast-forward, merge, or reset
+	 * naturally invalidates the entry when the tip oid changes.
+	 */
+	async latestCommitForPath(path: string): Promise<LatestCommitForPath> {
+		const repo = await this.ensureRepo();
+		const branch = await repo.currentBranch();
+		const headOid = await repo.resolveRef(branch === null ? "HEAD" : `refs/heads/${branch}`);
+		if (headOid === null) {
+			return { pathExistsAtHead: false, historyComplete: true, commit: null };
+		}
+		const cached = this.pathHistoryCache.get(path);
+		if (cached?.headOid === headOid) return cached.result;
+		const result = await repo.latestCommitForPath(headOid, path);
+		this.pathHistoryCache.delete(path);
+		this.pathHistoryCache.set(path, { headOid, result });
+		while (this.pathHistoryCache.size > 32) {
+			const oldest = this.pathHistoryCache.keys().next().value;
+			if (oldest === undefined) break;
+			this.pathHistoryCache.delete(oldest);
+		}
+		return result;
+	}
+
+	/**
 	 * Distinct filter names declared by every path currently in the index,
 	 * classified into ok/locked/blocked (see `FilterCheckResult`). Cheap —
 	 * reads the index via `listPathsWithAttribute`, not a working-tree walk —
@@ -840,11 +908,8 @@ export class GitEngine {
 	}
 
 	private async readTextFile(path: string): Promise<string | null> {
-		try {
-			return await this.opts.adapter.read(path);
-		} catch {
-			return null;
-		}
+		if (!(await this.opts.adapter.exists(path))) return null;
+		return this.opts.adapter.read(path);
 	}
 
 	/**
@@ -857,15 +922,32 @@ export class GitEngine {
 		return (await this.getChangedFilesDetail()).changes;
 	}
 
-	async getChangedFilesDetail(): Promise<ChangedFilesResult> {
+	async getChangedFilesDetail(additionalIgnorePatterns: readonly string[] = []): Promise<ChangedFilesResult> {
 		const repo = await this.ensureRepo();
 		this.opts.mirror.reset();
 		await this.opts.mirror.hydrateAll(this.opts.adapter);
 		const entries = await repo.status();
+		const managedPolicy = await this.readTextFile(".gitignore");
+		const managedPatterns = managedPolicy === null
+			? []
+			: deterministicPluginPolicyPatterns(
+				this.opts.configDir,
+				readManagedPluginPolicyPatterns(managedPolicy)
+			);
+		const remotePatterns = deterministicPluginPolicyPatterns(this.opts.configDir, additionalIgnorePatterns);
+		const managedPolicyFilter = createManagedPluginPolicyFilter([
+			...managedPatterns,
+			...remotePatterns,
+		]);
+		const ignoreFilter = createIgnoreFilter(
+			this.opts.ignoreGlobs ?? [],
+			defaultIgnoresFor(this.opts.configDir, this.opts.ownDataPath)
+		);
+		const isIgnored = (path: string): boolean => ignoreFilter(path) || managedPolicyFilter(path);
 		const ignored = entries
-			.filter((e) => this.ignoreFilter(e.path) && classifyStatusEntry(e) !== null)
+			.filter((e) => isIgnored(e.path) && classifyStatusEntry(e) !== null)
 			.map((e) => e.path);
-		const filtered = entries.filter((e) => !this.ignoreFilter(e.path));
+		const filtered = entries.filter((e) => !isIgnored(e.path));
 		const changes = classifyStatusEntries(filtered);
 		this.lastIgnoredPaths = ignored;
 		return { changes, ignoredPaths: [...ignored] };
@@ -879,9 +961,12 @@ export class GitEngine {
 	 * Stage all changes and commit. Returns the new commit oid, or null if
 	 * the working tree was clean (no commit created).
 	 */
-	async stageAndCommit(message: string): Promise<string | null> {
+	async stageAndCommit(
+		message: string,
+		additionalIgnorePatterns: readonly string[] = []
+	): Promise<string | null> {
 		const repo = await this.ensureRepo();
-		const changes = (await this.getChangedFilesDetail()).changes;
+		const changes = (await this.getChangedFilesDetail(additionalIgnorePatterns)).changes;
 		if (changes.length === 0) return null;
 		for (const change of changes) {
 			if (change.status === "deleted") {
@@ -893,6 +978,98 @@ export class GitEngine {
 		const oid = await repo.commit(message, this.libgit2Author());
 		await this.flush();
 		return oid;
+	}
+
+	/**
+	 * Checks exact candidate paths against HEAD. This deliberately uses the
+	 * repository's object database rather than the working tree, so a locally
+	 * deleted plugin file is still recognized as tracked and can be removed
+	 * from the index during policy migration.
+	 */
+	async getTrackedPaths(candidatePaths: string[]): Promise<string[]> {
+		const repo = await this.ensureRepo();
+		const head = await repo.resolveRef("HEAD");
+		if (head === null) return [];
+		const paths = [...new Set(candidatePaths.map(normalizeMigrationPath).filter((path): path is string => path !== null))];
+		const tracked: string[] = [];
+		for (const path of paths) {
+			try {
+				await repo.readBlob(head, path);
+				tracked.push(path);
+			} catch (err) {
+				// A missing path is not tracked at HEAD. The adapter may still
+				// contain it as a newly installed local plugin file. Any other
+				// repository failure must reach the caller rather than being
+				// mistaken for an untracked path.
+				if (!(err instanceof Libgit2Error && err.code === -3)) throw err;
+			}
+		}
+		return tracked.sort((a, b) => a.localeCompare(b));
+	}
+
+	/**
+	 * Applies the repository half of a plugin-policy migration. The managed
+	 * block is written first, then selected paths are removed from the index
+	 * (their local files are never deleted), and both changes are committed as
+	 * one local migration commit. The caller pushes that commit while holding
+	 * the same engine lock used by normal sync.
+	 */
+	async migratePluginPolicy(
+		desiredPatterns: readonly string[],
+		candidatePaths: readonly string[],
+		message: string
+	): Promise<PluginPolicyMigrationResult> {
+		const repo = await this.ensureRepo();
+		const effectiveDesiredPatterns = deterministicPluginPolicyPatterns(
+			this.opts.configDir,
+			desiredPatterns
+		);
+		if (!policyPatternsEqual(effectiveDesiredPatterns, desiredPatterns)) {
+			throw new Error("Cannot safely apply plugin policy: one or more policy paths are invalid.");
+		}
+		const hasGitignore = await this.opts.adapter.exists(".gitignore");
+		const current = hasGitignore ? await this.opts.adapter.read(".gitignore") : "";
+		const next = upsertManagedPluginPolicyBlock(current, effectiveDesiredPatterns);
+		if (!isManagedPluginPolicyBlockWellFormed(next) ||
+			!policyPatternsEqual(readManagedPluginPolicyPatterns(next), effectiveDesiredPatterns)) {
+			throw new Error(
+				"Cannot safely apply plugin policy: the managed .gitignore block is malformed or could not be written."
+			);
+		}
+		const gitignoreChanged = next !== current;
+		if (gitignoreChanged) await this.opts.adapter.write(".gitignore", next);
+
+		// Keep the entire migration in one hydrated mirror session. Calling the
+		// general stageAndCommit path after unstagePath() would re-hydrate from
+		// the adapter and restore the pre-removal .git/index, losing index-only
+		// removals before commit.
+		this.opts.mirror.reset();
+		await this.opts.mirror.hydrateAll(this.opts.adapter);
+		if (gitignoreChanged) await repo.stagePath(".gitignore");
+
+		// Local enumeration covers unchanged package files. Status contributes
+		// tracked paths that are already missing locally (especially nested
+		// assets), so the migration cannot strand an ignored-but-still-tracked
+		// deletion forever.
+		const policyFilter = createManagedPluginPolicyFilter(effectiveDesiredPatterns);
+		const completeCandidates = new Set(candidatePaths);
+		for (const entry of await repo.status()) {
+			if (policyFilter(entry.path)) completeCandidates.add(entry.path);
+		}
+		const trackedPaths = await this.getTrackedPaths([...completeCandidates]);
+		for (const path of trackedPaths) {
+			try {
+				await repo.unstagePath(path);
+			} catch (err) {
+				// A retry after an index-removal/commit failure can legitimately
+				// find the path already absent from the index. Do not hide any
+				// other libgit2 failure.
+				if (!(err instanceof Libgit2Error && err.code === -3)) throw err;
+			}
+		}
+		const commitOid = await repo.commit(message, this.libgit2Author());
+		await this.flush();
+		return { commitOid, trackedPaths };
 	}
 
 	async fetch(branch?: string): Promise<void> {
@@ -956,6 +1133,113 @@ export class GitEngine {
 	}
 
 	/**
+	 * Reads the deterministic Halyard-managed policy advertised by the fetched
+	 * remote tip. This is intentionally separate from the working-tree
+	 * `.gitignore`: the latter may still contain an older policy until checkout.
+	 */
+	async remoteManagedPluginPolicyPatterns(branch: string): Promise<string[]> {
+		const repo = await this.ensureRepo();
+		const remoteOid = await repo.resolveRef(`refs/remotes/${this.remote}/${branch}`);
+		if (remoteOid === null) return [];
+		let contents: Uint8Array;
+		try {
+			contents = await repo.readBlob(remoteOid, ".gitignore");
+		} catch (err) {
+			if (err instanceof Libgit2Error && err.code === -3) return [];
+			throw err;
+		}
+		const text = new TextDecoder().decode(contents);
+		return deterministicPluginPolicyPatterns(
+			this.opts.configDir,
+			readManagedPluginPolicyPatterns(text)
+		);
+	}
+
+	/**
+	 * Snapshot only local files selected by the remote managed policy. The
+	 * adapter is the source of truth here: the in-memory mirror may not include
+	 * edits made by Obsidian since the previous sync cycle.
+	 */
+	private async snapshotPluginPolicyFiles(patterns: readonly string[]): Promise<PluginPolicySnapshot> {
+		const files = new Map<string, Uint8Array>();
+		const directories = new Set<string>();
+		const safePath = (path: string): string | null => {
+			const normalized = normalizeMigrationPath(path);
+			if (normalized === null || normalized.split("/").some((part) => part === ".git")) return null;
+			return normalized;
+		};
+		const addParents = (path: string): void => {
+			let parent = path.slice(0, path.lastIndexOf("/"));
+			while (parent.length > 0) {
+				const safe = safePath(parent);
+				if (safe === null) return;
+				directories.add(safe);
+				parent = parent.slice(0, parent.lastIndexOf("/"));
+			}
+		};
+		const snapshotFile = async (path: string): Promise<void> => {
+			const safe = safePath(path);
+			if (safe === null) return;
+			const stat = await this.opts.adapter.stat(safe);
+			if (stat === null || stat.type !== "file") return;
+			const bytes = new Uint8Array(await this.opts.adapter.readBinary(safe));
+			files.set(safe, bytes.slice());
+			addParents(safe);
+		};
+		const snapshotDirectory = async (path: string): Promise<void> => {
+			const safe = safePath(path);
+			if (safe === null) return;
+			const stat = await this.opts.adapter.stat(safe);
+			if (stat === null || stat.type !== "folder") return;
+			directories.add(safe);
+			const listing = await this.opts.adapter.list(safe);
+			for (const folder of listing.folders) {
+				const child = safePath(folder);
+				if (child !== null && child.startsWith(`${safe}/`)) await snapshotDirectory(child);
+			}
+			for (const file of listing.files) {
+				const child = safePath(file);
+				if (child !== null && child.startsWith(`${safe}/`)) await snapshotFile(child);
+			}
+		};
+
+		for (const pattern of deterministicPluginPolicyPatterns(this.opts.configDir, patterns)) {
+			if (pattern.endsWith("/")) {
+				await snapshotDirectory(pattern.slice(0, -1));
+			} else {
+				await snapshotFile(pattern);
+			}
+		}
+		return { files, directories };
+	}
+
+	/** Restore a snapshot after checkout, rebuilding parents before bytes. */
+	private async restorePluginPolicySnapshot(snapshot: PluginPolicySnapshot): Promise<void> {
+		const directories = [...snapshot.directories].sort(
+			(a, b) => a.split("/").length - b.split("/").length || a.localeCompare(b)
+		);
+		for (const path of directories) {
+			const stat = await this.opts.adapter.stat(path);
+			if (stat === null) {
+				await this.opts.adapter.mkdir(path);
+			} else if (stat.type !== "folder") {
+				throw new Error(`Cannot restore plugin policy files: '${path}' is a file, not a folder.`);
+			}
+		}
+		for (const [path, bytes] of [...snapshot.files.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+			const parent = path.slice(0, path.lastIndexOf("/"));
+			if (parent.length > 0) {
+				const stat = await this.opts.adapter.stat(parent);
+				if (stat === null) await this.opts.adapter.mkdir(parent);
+				else if (stat.type !== "folder") {
+					throw new Error(`Cannot restore plugin policy file '${path}': parent is a file.`);
+				}
+			}
+			await this.opts.adapter.writeBinary(path, bytes.slice().buffer);
+		}
+	}
+
+	/**
 	 * Merge the remote-tracking ref into the local branch.
 	 *
 	 * Assumes local changes are already committed (call stageAndCommit
@@ -981,20 +1265,24 @@ export class GitEngine {
 		if (theirs === null || theirs === local) {
 			return { kind: "uptodate" };
 		}
+		const policyPatterns = await this.remoteManagedPluginPolicyPatterns(branch);
+		const snapshot = await this.snapshotPluginPolicyFiles(policyPatterns);
 		const outcome = await repo.merge(
 			branch,
 			`refs/remotes/${this.remote}/${branch}`,
 			this.libgit2Author(),
 			{ favor: this.opts.autoMergeOverlappingEdits ? "union" : "normal" }
 		);
-		await this.flush();
 		switch (outcome.kind) {
 			case "uptodate":
-				return { kind: "uptodate" };
+				return outcome;
 			case "fastforward":
-				return { kind: "fastforward", oid: outcome.oid };
 			case "merged":
-				return { kind: "merged", oid: outcome.oid };
+				await this.flush();
+				await this.restorePluginPolicySnapshot(snapshot);
+				this.opts.mirror.reset();
+				await this.opts.mirror.hydrateAll(this.opts.adapter);
+				return outcome;
 			case "conflict":
 				return { kind: "conflict", files: outcome.paths };
 		}

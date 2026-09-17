@@ -116,6 +116,30 @@
 	margin-top: -0.5em;
 }
 
+/* Read-only active-note history section (ui/sync-view.ts). */
+.halyard-active-note-git-details {
+	margin: 1em 0;
+	padding: 0.7em 0;
+	border-top: 1px solid var(--background-modifier-border);
+	border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.halyard-active-note-git-details h4 {
+	margin-top: 0;
+}
+
+.halyard-active-note-git-path,
+.halyard-active-note-git-message,
+.halyard-active-note-git-commit-message {
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+	overflow-wrap: anywhere;
+}
+
+.halyard-active-note-git-commit-message {
+	font-style: italic;
+}
+
 /* The git-crypt key-file picker is driven by a button, never shown directly
    (ui/modals.ts's attachGitCryptKeyImportButton). */
 .halyard-sync-hidden-file-input {

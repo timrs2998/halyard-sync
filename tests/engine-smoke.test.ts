@@ -14,7 +14,7 @@
 
 import { describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -25,6 +25,7 @@ import type { GitCryptKeyMaterial } from "../src/auth/secrets";
 import { startGitHttpBackend } from "./libgit2/helpers/git-http-backend";
 import { MockAdapter } from "./helpers/mock-adapter";
 import { loadModuleFactory } from "./libgit2/helpers/test-module";
+import { upsertManagedPluginPolicyBlock } from "../src/sync/plugin-policy";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const MODULE_JS = join(__dirname, "..", "src", "git", "libgit2", "build", "dist", "halyard-libgit2.js");
@@ -131,6 +132,105 @@ describe.skipIf(factory === null)("GitEngine against the real compiled libgit2 m
 		await engine.ensureRemote("https://github.com/owner/vault.git");
 		expect(await engine.getRemoteUrl()).toBe("https://github.com/owner/vault.git");
 
+		await engine.close();
+	});
+
+	it("commits index-only plugin removals and leaves unrelated shared plugins tracked", async () => {
+		const adapter = new MockAdapter();
+		const engine = await makeEngine(adapter);
+		await engine.initFromExistingVault({
+			url: "https://example.com/vault.git",
+			defaultBranch: "main",
+		});
+		await adapter.mkdir(".obsidian/plugins/shared");
+		await adapter.mkdir(".obsidian/plugins/local");
+		await adapter.mkdir(".obsidian/plugins/local/nested");
+		await adapter.write(".obsidian/plugins/shared/main.js", "shared");
+		await adapter.write(".obsidian/plugins/local/main.js", "local");
+		await adapter.write(".obsidian/plugins/local/nested/missing.bin", "tracked before local deletion");
+		await engine.stageAndCommit("seed plugins");
+
+		const policy = [".obsidian/plugins/local/"];
+		await adapter.write(".gitignore", upsertManagedPluginPolicyBlock("", policy));
+		await engine.stageAndCommit("record managed policy");
+		await adapter.remove(".obsidian/plugins/local/nested/missing.bin");
+
+		const migration = await engine.migratePluginPolicy(
+			policy,
+			[
+				".obsidian/plugins/local/main.js",
+				".obsidian/plugins/local/manifest.json",
+			],
+			"migrate local plugin"
+		);
+		expect(migration.trackedPaths).toEqual([
+			".obsidian/plugins/local/main.js",
+			".obsidian/plugins/local/nested/missing.bin",
+		]);
+		expect(migration.commitOid).not.toBeNull();
+		expect(typeof migration.commitOid).toBe("string");
+		expect(migration.commitOid as string).toMatch(/^[0-9a-f]{40}$/);
+		expect(await adapter.read(".obsidian/plugins/local/main.js")).toBe("local");
+		expect(await engine.getTrackedPaths([".obsidian/plugins/local/main.js"])).toEqual([]);
+		expect(await engine.getTrackedPaths([".obsidian/plugins/local/nested/missing.bin"])).toEqual([]);
+		expect(await engine.getTrackedPaths([".obsidian/plugins/shared/main.js"])).toEqual([
+			".obsidian/plugins/shared/main.js",
+		]);
+
+		// A retry after the managed block is already committed is a safe no-op,
+		// including when the previous attempt had already removed the index entry.
+		const retry = await engine.migratePluginPolicy(policy, [".obsidian/plugins/local/main.js"], "retry");
+		expect(retry.commitOid).toBeNull();
+		expect(await adapter.read(".obsidian/plugins/local/main.js")).toBe("local");
+		await engine.close();
+	});
+
+	it("treats plugin settings files as exact paths during migration", async () => {
+		const adapter = new MockAdapter();
+		const engine = await makeEngine(adapter);
+		await engine.initFromExistingVault({
+			url: "https://example.com/vault.git",
+			defaultBranch: "main",
+		});
+		await adapter.mkdir(".obsidian/plugins/settings");
+		await adapter.write(".obsidian/plugins/settings/data.json", "local settings");
+		await adapter.write(".obsidian/plugins/settings/data.json.bak", "tracked backup");
+		await engine.stageAndCommit("seed plugin settings");
+		await adapter.remove(".obsidian/plugins/settings/data.json.bak");
+
+		const migration = await engine.migratePluginPolicy(
+			[".obsidian/plugins/settings/data.json"],
+			[".obsidian/plugins/settings/data.json"],
+			"keep settings local"
+		);
+
+		expect(migration.trackedPaths).toEqual([".obsidian/plugins/settings/data.json"]);
+		expect(await engine.getTrackedPaths([".obsidian/plugins/settings/data.json"])).toEqual([]);
+		expect(await engine.getTrackedPaths([".obsidian/plugins/settings/data.json.bak"])).toEqual([
+			".obsidian/plugins/settings/data.json.bak",
+		]);
+		await engine.close();
+	});
+
+	it("refuses migration when the managed gitignore block is malformed", async () => {
+		const adapter = new MockAdapter();
+		const engine = await makeEngine(adapter);
+		await engine.initFromExistingVault({ url: "https://example.com/vault.git", defaultBranch: "main" });
+		await adapter.mkdir(".obsidian/plugins/local");
+		await adapter.write(".obsidian/plugins/local/main.js", "local");
+		await engine.stageAndCommit("seed plugin");
+		const malformed = "# user line\n# BEGIN HALYARD SYNC PLUGIN POLICY\n";
+		await adapter.write(".gitignore", malformed);
+
+		await expect(engine.migratePluginPolicy(
+			[".obsidian/plugins/local/"],
+			[".obsidian/plugins/local/main.js"],
+			"should not migrate"
+		)).rejects.toThrow(/managed \.gitignore block is malformed/);
+		expect(await adapter.read(".gitignore")).toBe(malformed);
+		expect(await engine.getTrackedPaths([".obsidian/plugins/local/main.js"])).toEqual([
+			".obsidian/plugins/local/main.js",
+		]);
 		await engine.close();
 	});
 
@@ -271,7 +371,138 @@ function pushRemoteChange(seedDir: string, bareDir: string, filepath: string, co
 	return git(["rev-parse", "main"], seedDir);
 }
 
+function writePluginFixtures(seedDir: string): void {
+	for (const directory of [
+		".obsidian/plugins/local/nested",
+		".obsidian/plugins/settings",
+	]) {
+		mkdirSync(join(seedDir, directory), { recursive: true });
+	}
+	writeFileSync(join(seedDir, ".obsidian/plugins/local/main.js"), "local code\n");
+	writeFileSync(join(seedDir, ".obsidian/plugins/local/manifest.json"), "{\"id\":\"local\"}\n");
+	writeFileSync(join(seedDir, ".obsidian/plugins/local/styles.css"), "body {}\n");
+	writeFileSync(join(seedDir, ".obsidian/plugins/local/data.json"), Buffer.from([0, 255, 1, 2]));
+	writeFileSync(join(seedDir, ".obsidian/plugins/local/nested/extra.bin"), Buffer.from([9, 8, 0, 7]));
+	writeFileSync(join(seedDir, ".obsidian/plugins/settings/main.js"), "settings code\n");
+	writeFileSync(join(seedDir, ".obsidian/plugins/settings/data.json"), Buffer.from([3, 0, 254, 6]));
+	writeFileSync(join(seedDir, ".obsidian/community-plugins.json"), Buffer.from([123, 0, 125]));
+	git(["add", "."], seedDir);
+	git(["-c", "user.email=seed@test", "-c", "user.name=Seed", "commit", "-m", "plugin fixtures"], seedDir);
+}
+
+function pushPluginPolicy(seedDir: string, bareDir: string): string {
+	const policy = upsertManagedPluginPolicyBlock("", [
+		".obsidian/community-plugins.json",
+		".obsidian/plugins/absent/",
+		".obsidian/plugins/local/",
+		".obsidian/plugins/settings/data.json",
+	]);
+	writeFileSync(join(seedDir, ".gitignore"), policy);
+	git([
+		"rm", "--cached", "--quiet",
+		".obsidian/community-plugins.json",
+		".obsidian/plugins/local/data.json",
+		".obsidian/plugins/local/main.js",
+		".obsidian/plugins/local/manifest.json",
+		".obsidian/plugins/local/nested/extra.bin",
+		".obsidian/plugins/local/styles.css",
+		".obsidian/plugins/settings/data.json",
+	], seedDir);
+	git(["add", ".gitignore"], seedDir);
+	git(["-c", "user.email=seed@test", "-c", "user.name=Seed", "commit", "-m", "publish plugin policy"], seedDir);
+	git(["push", bareDir, "main"], seedDir);
+	return git(["rev-parse", "main"], seedDir);
+}
+
 describe.skipIf(factory === null)("GitEngine merge conflicts (real divergent history over real HTTP)", () => {
+	it("preserves local policy files across remote untracking without conflicting or restoring unrelated deletions", async () => {
+		const { server, seedDir, bareDir } = await setupSharedRemote("unrelated.md");
+		try {
+			writePluginFixtures(seedDir);
+			git(["push", bareDir, "main"], seedDir);
+
+			const adapter = new MockAdapter();
+			const engine = await makeEngine(adapter, makeRealRequestUrl());
+			await engine.clone({ url: server.url });
+
+			const localPluginBytes = new Uint8Array([11, 0, 12, 255]);
+			const localSettingsBytes = new Uint8Array([21, 0, 22, 254]);
+			const localCommunityBytes = new Uint8Array([31, 0, 32]);
+			await adapter.writeBinary(".obsidian/plugins/local/main.js", localPluginBytes.buffer);
+			await adapter.writeBinary(".obsidian/plugins/settings/data.json", localSettingsBytes.buffer);
+			await adapter.writeBinary(".obsidian/community-plugins.json", localCommunityBytes.buffer);
+			await adapter.remove("unrelated.md");
+
+			const remoteOid = pushPluginPolicy(seedDir, bareDir);
+			await engine.fetch("main");
+			const remotePatterns = await engine.remoteManagedPluginPolicyPatterns("main");
+			expect(remotePatterns).toEqual([
+				".obsidian/community-plugins.json",
+				".obsidian/plugins/absent/",
+				".obsidian/plugins/local/",
+				".obsidian/plugins/settings/data.json",
+			]);
+
+			// The note deletion is real local work and should be committed. The
+			// modified plugin paths are intentionally left in the working tree by
+			// the remote policy, so staging them would create modify/delete merges.
+			const localOid = await engine.stageAndCommit("delete unrelated note", remotePatterns);
+			expect(localOid).not.toBeNull();
+			expect(engine.getIgnoredChangedFiles()).toEqual(expect.arrayContaining([
+				".obsidian/community-plugins.json",
+				".obsidian/plugins/local/main.js",
+				".obsidian/plugins/settings/data.json",
+			]));
+
+			const outcome = await engine.mergeUpstream("main");
+			expect(outcome.kind).toBe("merged");
+			expect(await engine.localRef("main")).not.toBe(localOid);
+			expect(await engine.localRef("main")).not.toBe(remoteOid);
+
+			expect(new Uint8Array(await adapter.readBinary(".obsidian/plugins/local/main.js"))).toEqual(localPluginBytes);
+			expect(new Uint8Array(await adapter.readBinary(".obsidian/plugins/local/nested/extra.bin"))).toEqual(
+				new Uint8Array([9, 8, 0, 7])
+			);
+			expect(new Uint8Array(await adapter.readBinary(".obsidian/plugins/settings/data.json"))).toEqual(localSettingsBytes);
+			expect(await adapter.read(".obsidian/plugins/settings/main.js")).toBe("settings code\n");
+			expect(new Uint8Array(await adapter.readBinary(".obsidian/community-plugins.json"))).toEqual(localCommunityBytes);
+			expect(await adapter.exists(".obsidian/plugins/absent")).toBe(false);
+			expect(await adapter.exists("unrelated.md")).toBe(false);
+
+			await engine.close();
+		} finally {
+			await server.close();
+		}
+	});
+
+	it("does not restore a policy snapshot when an unrelated merge conflicts", async () => {
+		const { server, seedDir, bareDir } = await setupSharedRemote("shared.md");
+		try {
+			writePluginFixtures(seedDir);
+			git(["push", bareDir, "main"], seedDir);
+
+			const adapter = new MockAdapter();
+			const engine = await makeEngine(adapter, makeRealRequestUrl());
+			await engine.clone({ url: server.url });
+			await adapter.write("shared.md", "local shared\n");
+			await engine.stageAndCommit("local shared edit");
+			await adapter.write(".obsidian/plugins/local/main.js", "unsaved local plugin\n");
+
+			pushRemoteChange(seedDir, bareDir, "shared.md", "remote shared\n", "remote shared edit");
+			pushPluginPolicy(seedDir, bareDir);
+			await engine.fetch("main");
+			const outcome = await engine.mergeUpstream("main");
+
+			expect(outcome.kind).toBe("conflict");
+			expect(await adapter.read("shared.md")).toBe("local shared\n");
+			expect(await adapter.read(".obsidian/plugins/local/main.js")).toBe("unsaved local plugin\n");
+
+			await engine.close();
+		} finally {
+			await server.close();
+		}
+	});
+
 	it("mergeUpstream reports a real conflict and never writes markers into tracked files", async () => {
 		const { server, seedDir, bareDir } = await setupSharedRemote("shared.md");
 		try {

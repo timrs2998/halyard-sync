@@ -37,6 +37,28 @@ export interface Libgit2Author {
 	offset?: number;
 }
 
+/** Metadata read directly from a commit object. The timestamp is the
+ * author's commit time, expressed as Unix seconds; the offset preserves the
+ * timezone recorded in the commit signature for callers that want it. */
+export interface CommitMetadata {
+	oid: Oid;
+	timestamp: number;
+	timezoneOffsetMinutes: number;
+	authorName: string;
+	authorEmail: string;
+	message: string;
+}
+
+/** Exact-path history lookup from a repository tip. */
+export interface LatestCommitForPath {
+	/** Whether the path exists in the supplied tip's tree. */
+	pathExistsAtHead: boolean;
+	/** False when the walk hit a shallow boundary before it could establish
+	 * whether the path changed there. */
+	historyComplete: boolean;
+	commit: CommitMetadata | null;
+}
+
 export class Libgit2Error extends Error {
 	constructor(
 		message: string,
@@ -224,6 +246,12 @@ export interface Libgit2Repository {
 	 * depth limit: `aheadBehind` needs the true count, so bounding the walk
 	 * is the caller's job. */
 	log(ref: string, opts?: { until?: Oid }): Promise<Oid[]>;
+
+	/** Finds the newest commit reachable from `startOid` whose exact `path`
+	 * snapshot differs from its first parent. The native collector also returns
+	 * whether the path exists at the tip and whether a shallow boundary limited
+	 * the answer, without exposing libgit2 struct layouts to JavaScript. */
+	latestCommitForPath(startOid: Oid, path: RepoPath): Promise<LatestCommitForPath>;
 
 	// -- merge / checkout ---------------------------------------------------
 

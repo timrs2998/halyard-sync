@@ -384,6 +384,7 @@ EXPORTED_FUNCTIONS='[
   "_halyard_remote_fetch","_halyard_remote_push",
   "_halyard_merge_conflict_paths_collect","_halyard_list_paths_with_attribute",
   "_halyard_merge_commits_opts",
+  "_halyard_latest_commit_for_path",
   "_malloc","_free"
 ]'
 

@@ -13,6 +13,7 @@ concurrency:
 
 jobs:
   build-and-test:
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -51,3 +52,37 @@ jobs:
       - run: npm run build
 
       - run: npm test
+
+      - name: Cache Obsidian downloads
+        uses: actions/cache@v4
+        with:
+          path: .obsidian-cache
+          key: obsidian-cache-${{ runner.os }}-${{ hashFiles('wdio.conf.mts') }}
+          restore-keys: |
+            obsidian-cache-${{ runner.os }}-
+
+      # Obsidian needs a virtual display and a window manager on Linux. Keep
+      # both processes in this step so they stay alive for the test run.
+      - name: Run E2E tests
+        env:
+          DISPLAY: ":99"
+          OBSIDIAN_VERSIONS: "latest/latest"
+          WDIO_MAX_INSTANCES: "2"
+        run: |
+          sudo rm -rf /etc/apt/sources.list.d/*.list
+          sudo apt-get update -q
+          sudo apt-get install -q -y --no-install-recommends herbstluftwm dzen2 x11-xserver-utils xvfb
+
+          Xvfb "$DISPLAY" -screen 0 1280x1024x24 +extension GLX -noreset &
+          xvfb_pid=$!
+          herbstluftwm &
+          wm_pid=$!
+
+          cleanup() {
+            kill "$wm_pid" "$xvfb_pid" 2>/dev/null || true
+            wait "$wm_pid" "$xvfb_pid" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          sleep 1
+          npm run test:e2e

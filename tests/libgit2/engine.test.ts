@@ -169,6 +169,43 @@ describe.skipIf(factory === null)("engine.ts Libgit2Module/Libgit2Repository (re
 		await repo.close();
 	});
 
+	it("latestCommitForPath returns exact-path metadata and ignores unrelated commits", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "halyard-engine-path-history-"));
+		writeFileSync(join(dir, "notes.md"), "one\n", "utf8");
+		const Module = await freshModule(dir);
+		const git2 = await wrapLibgit2Module(Module, { requestUrl: realFetchRequestUrl });
+		const repo = await git2.init({ dir: "/repo", defaultBranch: "main" });
+
+		await repo.stagePath("notes.md");
+		const firstOid = await repo.commit("add note", AUTHOR);
+		writeFileSync(join(dir, "unrelated.txt"), "unrelated\n", "utf8");
+		await repo.stagePath("unrelated.txt");
+		const unrelatedOid = await repo.commit("unrelated change", AUTHOR);
+
+		const unchangedLookup = await repo.latestCommitForPath(unrelatedOid!, "notes.md");
+		expect(unchangedLookup.pathExistsAtHead).toBe(true);
+		expect(unchangedLookup.historyComplete).toBe(true);
+		expect(unchangedLookup.commit?.oid).toBe(firstOid);
+		expect(unchangedLookup.commit?.authorName).toBe(AUTHOR.name);
+		expect(unchangedLookup.commit?.authorEmail).toBe(AUTHOR.email);
+		expect(unchangedLookup.commit?.message).toBe("add note");
+		expect(unchangedLookup.commit?.timestamp).toBeTypeOf("number");
+
+		writeFileSync(join(dir, "notes.md"), "two\n", "utf8");
+		await repo.stagePath("notes.md");
+		const secondOid = await repo.commit("edit note", AUTHOR);
+		const changedLookup = await repo.latestCommitForPath(secondOid!, "notes.md");
+		expect(changedLookup.pathExistsAtHead).toBe(true);
+		expect(changedLookup.commit?.oid).toBe(secondOid);
+		expect(changedLookup.commit?.message).toBe("edit note");
+
+		const untrackedLookup = await repo.latestCommitForPath(secondOid!, "new-note.md");
+		expect(untrackedLookup.pathExistsAtHead).toBe(false);
+		expect(untrackedLookup.commit).toBeNull();
+
+		await repo.close();
+	});
+
 	it("readBlob resolves (commit, path) to the blob's raw content", async () => {
 		const dir = mkdtempSync(join(tmpdir(), "halyard-engine-readblob-"));
 		writeFileSync(join(dir, "notes.md"), "# Title\ncontent\n", "utf8");

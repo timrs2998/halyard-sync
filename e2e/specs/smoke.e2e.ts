@@ -33,6 +33,35 @@ describe("Halyard Sync loads in a real Obsidian instance", function () {
 		expect(text).toContain("set up Halyard Sync");
 	});
 
+	it("renders the read-only active-note Git details section in the sidebar", async function () {
+		await browser.executeObsidian(async ({ app }) => {
+			const plugin = (app as unknown as {
+				plugins: { plugins: Record<string, { activateSyncView?: () => Promise<void> }> };
+			}).plugins.plugins["halyard-sync"];
+			await plugin.activateSyncView?.();
+		});
+		await browser.waitUntil(
+			async () =>
+				(await browser.executeObsidian(
+					({ app }) => {
+						const panels = app.workspace.getLeavesOfType("halyard-sync-panel") as unknown as Array<{
+							view: { contentEl: Element };
+						}>;
+						return panels.some(({ view }) =>
+							view.contentEl.querySelector(".halyard-active-note-git-details") !== null
+						);
+					}
+				)),
+			{ timeout: 10_000, timeoutMsg: "Halyard Sync panel did not render active-note Git details" }
+		);
+		const text = await browser.executeObsidian(({ app }) => {
+			const panel = app.workspace.getLeavesOfType("halyard-sync-panel")[0] as unknown as
+				{ view: { contentEl: Element } } | undefined;
+			return panel?.view.contentEl.textContent ?? "";
+		});
+		expect(text).toContain("Active note Git details");
+	});
+
 	it("opens the setup wizard from the command palette", async function () {
 		await browser.executeObsidianCommand("halyard-sync:open-setup-wizard");
 

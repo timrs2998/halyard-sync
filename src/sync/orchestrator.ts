@@ -15,6 +15,7 @@ import type { AheadBehind, ChangedFile, FilterCheckResult, MergeOutcome, RemoteR
 import type { ExternalWriteBlock } from "../settings";
 import { AsyncLock } from "./async-lock";
 import type { ConflictResult, ConflictStrategyName } from "./conflicts";
+import { formatSyncCommitMessage } from "./commit-message";
 
 /**
  * Friendly message for `sync()`'s checked-out-branch guard: real git usage
@@ -96,11 +97,13 @@ export interface OrchestratorEngine {
 	 * own doc comment. Used only for the checked-out-branch mismatch guard below. */
 	currentBranch(): Promise<string | null>;
 	getChangedFiles(): Promise<ChangedFile[]>;
-	stageAndCommit(message: string): Promise<string | null>;
+	stageAndCommit(message: string, additionalIgnorePatterns?: readonly string[]): Promise<string | null>;
 	listRemoteRef(branch: string): Promise<RemoteRefInfo | null>;
 	remoteTrackingRef(branch: string): Promise<string | null>;
 	localRef(branch: string): Promise<string | null>;
 	fetch(branch?: string): Promise<unknown>;
+	/** Managed local-only patterns from the fetched remote tip, if supported. */
+	remoteManagedPluginPolicyPatterns?(branch: string): Promise<string[]>;
 	mergeUpstream(branch: string): Promise<MergeOutcome>;
 	aheadBehind(branch: string): Promise<AheadBehind>;
 	push(options?: { ref?: string; remoteRef?: string; force?: boolean }): Promise<unknown>;
@@ -118,6 +121,8 @@ export interface OrchestratorOptions {
 	conflictStrategy: () => ConflictStrategyName;
 	/** Embedded in commit messages, e.g. "desktop" / "mobile". */
 	platform: string;
+	/** Device label embedded in new sync commit messages. */
+	deviceName?: () => string;
 	/** Stops the scheduler when a sync hits something that won't fix itself on retry. */
 	pauseAutoSync?: () => void;
 	/**
@@ -386,11 +391,6 @@ export class SyncOrchestrator {
 			return;
 		}
 
-		this.setState("staging");
-		const commitMessage = `vault sync: ${new Date(now()).toISOString()} (${this.opts.platform})`;
-		const committedOid = await engine.stageAndCommit(commitMessage);
-		this.ignoredPaths = (await engine.getIgnoredChangedFiles?.()) ?? [];
-
 		this.setState("fetching");
 		const remoteInfo = await engine.listRemoteRef(branch);
 		const tracking = await engine.remoteTrackingRef(branch);
@@ -411,14 +411,31 @@ export class SyncOrchestrator {
 			return;
 		}
 
+		// Fetch before staging whenever the advertised tip moved. The fetched
+		// managed policy must be known before a local plugin data file can be
+		// classified as a staged change; otherwise a remote untracking commit
+		// becomes a local modify/delete conflict on this device.
+		if (remoteInfo !== null && !remoteUnchanged) {
+			await engine.fetch(branch);
+		}
+		const remotePolicyPatterns = remoteInfo === null
+			? []
+			: (await engine.remoteManagedPluginPolicyPatterns?.(branch)) ?? [];
+
+		this.setState("staging");
+		const commitMessage = formatSyncCommitMessage(
+			new Date(now()).toISOString(),
+			this.opts.platform,
+			this.opts.deviceName?.() ?? "unknown device"
+		);
+		const committedOid = await engine.stageAndCommit(commitMessage, remotePolicyPatterns);
+		this.ignoredPaths = (await engine.getIgnoredChangedFiles?.()) ?? [];
+
 		if (remoteUnchanged && committedOid === null && local === tracking) {
 			// Clean tree, remote where we left it, nothing unpushed: the whole
 			// no-op poll cost one listRemoteRef round trip.
 			await this.finishIdle(now(), this.ignoredMessage());
 			return;
-		}
-		if (remoteInfo !== null && !remoteUnchanged) {
-			await engine.fetch(branch);
 		}
 		// remoteInfo === null here means genuinely never pushed before (the
 		// "previously tracked, now missing" case already returned above) —

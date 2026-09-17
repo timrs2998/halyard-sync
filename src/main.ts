@@ -11,6 +11,8 @@ import {
 	describeGitError,
 	deriveGitCryptKeyChecklist,
 	GitEngine,
+	type PluginPolicyMigrationResult,
+	type ActiveNoteGitDetailsResult,
 	migrateWorkspaceIgnoreLine,
 	UnsupportedGitAttributesError,
 	type ConflictFileStat,
@@ -23,6 +25,7 @@ import { instantiateLibgit2Module } from "./git/libgit2/loader";
 import { libgit2WasmBytes } from "./git/libgit2/wasm-binary";
 import { parseKeyFile } from "./git/gitcrypt";
 import { AsyncLock } from "./sync/async-lock";
+import { formatSyncCommitMessage } from "./sync/commit-message";
 import { ConflictResolver, generateDeviceName } from "./sync/conflicts";
 import { SyncOrchestrator, type OrchestratorEngine } from "./sync/orchestrator";
 import { SyncScheduler } from "./sync/scheduler";
@@ -35,6 +38,19 @@ import {
 	effectiveIgnoreGlobs,
 } from "./settings";
 import { findExcludingPatterns } from "./sync/ignore-claims";
+import {
+	derivePluginPolicyPatterns,
+	inferPluginPolicySettings,
+	normalizeCommunityPluginsSyncMode,
+	normalizePluginSyncPolicies,
+	policyMigrationCandidatePaths,
+	policyPatternsEqual,
+	readManagedPluginPolicyPatterns,
+	type CommunityPluginsSyncMode,
+	type InstalledPluginForPolicy,
+	type PluginPolicyStatus,
+	type PluginSyncMode,
+} from "./sync/plugin-policy";
 import { registerHalyardSyncIcon, HALYARD_SYNC_ICON_ID } from "./ui/icon";
 import { ConflictModal, SetupWizardModal, SyncHistoryModal } from "./ui/modals";
 import { StatusBarController, statusBarView, type SetupState } from "./ui/statusbar";
@@ -73,6 +89,18 @@ function normalizeExternalWriteBlocks(value: unknown): Record<string, ExternalWr
 		blocks[ownerId] = { ownerId, paths, at: candidate.at, message: candidate.message };
 	}
 	return blocks;
+}
+
+function normalizePluginPolicyPending(value: unknown): boolean {
+	return value === true;
+}
+
+function normalizePluginPolicyInitialized(value: unknown): boolean {
+	return value === true;
+}
+
+function normalizePluginPolicyPushPending(value: unknown): boolean {
+	return value === true;
 }
 
 /** Outcome of `HalyardSyncPlugin.testConnection` — see `ui/modals.ts`. */
@@ -140,6 +168,7 @@ export default class HalyardSyncPlugin extends Plugin {
 	async onload(): Promise<void> {
 		await this.loadSettings();
 		await this.migrateGitignoreConfigDir();
+		await this.initializePluginPolicyFromGitignore();
 
 		const fallback = {
 			load: async () => ({ ...this.fallbackSecrets }),
@@ -186,10 +215,13 @@ export default class HalyardSyncPlugin extends Plugin {
 			branch: () => this.settings.branch,
 			conflictStrategy: () => this.settings.conflictStrategy,
 			platform: this.isMobile ? "mobile" : "desktop",
+			deviceName: () => this.settings.deviceName,
 			pauseAutoSync,
 			runExclusive: (fn) => this.engineLock.run(fn),
 			onSyncComplete: async (at) => {
 				this.settings.lastSyncAt = at;
+				await this.finishPluginPolicyPushIfSynced();
+				await this.adoptManagedPluginPolicyIfSafe();
 				await this.persist();
 			},
 			initialHistory: this.settings.syncHistory,
@@ -373,6 +405,11 @@ export default class HalyardSyncPlugin extends Plugin {
 		this.settings = {
 			...defaultSettings(this.isMobile),
 			...rest,
+			pluginSyncPolicies: normalizePluginSyncPolicies(rest.pluginSyncPolicies),
+			communityPluginsSync: normalizeCommunityPluginsSyncMode(rest.communityPluginsSync),
+			pluginPolicyInitialized: normalizePluginPolicyInitialized(rest.pluginPolicyInitialized),
+			pluginPolicyMigrationPending: normalizePluginPolicyPending(rest.pluginPolicyMigrationPending),
+			pluginPolicyMigrationPushPending: normalizePluginPolicyPushPending(rest.pluginPolicyMigrationPushPending),
 			managedIgnoreClaims: normalizeManagedIgnoreClaims(rest.managedIgnoreClaims),
 			externalWriteBlocks: normalizeExternalWriteBlocks(rest.externalWriteBlocks),
 		};
@@ -503,6 +540,237 @@ export default class HalyardSyncPlugin extends Plugin {
 		return true;
 	}
 
+	/** Community plugins installed in this vault, sorted for a stable settings UI. */
+	getInstalledCommunityPlugins(): InstalledPluginForPolicy[] {
+		const manager = (this.app as unknown as {
+			plugins?: { manifests?: Record<string, { id?: unknown; name?: unknown }> };
+		}).plugins;
+		return Object.values(manager?.manifests ?? {})
+			.map((manifest) => ({
+				id: typeof manifest.id === "string" ? manifest.id : "",
+				name: typeof manifest.name === "string" ? manifest.name : "",
+			}))
+			.filter((plugin) => plugin.id.length > 0)
+			.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+	}
+
+	getPluginSyncMode(pluginId: string): PluginSyncMode {
+		if (pluginId === this.manifest.id) return "code-only";
+		return this.settings.pluginSyncPolicies[pluginId] ?? "shared";
+	}
+
+	getCommunityPluginsSyncMode(): CommunityPluginsSyncMode {
+		return this.settings.communityPluginsSync;
+	}
+
+	async setPluginSyncMode(pluginId: string, mode: PluginSyncMode): Promise<void> {
+		if (pluginId === this.manifest.id) return;
+		if (mode !== "shared" && mode !== "code-only" && mode !== "device-local") {
+			throw new Error("Unknown plugin sync mode.");
+		}
+		await this.settingsLock.run(async () => {
+			this.settings.pluginSyncPolicies = {
+				...this.settings.pluginSyncPolicies,
+				[pluginId]: mode,
+			};
+			this.settings.pluginPolicyInitialized = true;
+			this.settings.pluginPolicyMigrationPushPending = false;
+			await this.refreshPluginPolicyPendingLocked();
+			await this.persist();
+		});
+	}
+
+	async setCommunityPluginsSyncMode(mode: CommunityPluginsSyncMode): Promise<void> {
+		if (mode !== "shared" && mode !== "device-local") {
+			throw new Error("Unknown enabled-plugin-list sync mode.");
+		}
+		await this.settingsLock.run(async () => {
+			this.settings.communityPluginsSync = mode;
+			this.settings.pluginPolicyInitialized = true;
+			this.settings.pluginPolicyMigrationPushPending = false;
+			await this.refreshPluginPolicyPendingLocked();
+			await this.persist();
+		});
+	}
+
+	/** Current desired-vs-repository policy, including exact migration targets. */
+	async getPluginPolicyStatus(): Promise<PluginPolicyStatus> {
+		await this.adoptManagedPluginPolicyIfSafe();
+		const plugins = this.getInstalledCommunityPlugins();
+		const desiredPatterns = derivePluginPolicyPatterns(
+			this.app.vault.configDir,
+			this.settings.pluginSyncPolicies,
+			this.settings.communityPluginsSync,
+			this.manifest.id
+		);
+		const activePatterns = await this.readManagedPluginPolicyPatternsFromVault();
+		const candidates = await this.pluginPolicyCandidates(plugins);
+		const hasRepository = await this.hasRepo();
+		let trackedPaths: string[] = [];
+		if (hasRepository) {
+			trackedPaths = await this.engineLock.run(async () =>
+				(await this.getEngine()).getTrackedPaths(candidates)
+			);
+		}
+		const patternsDiffer = !policyPatternsEqual(desiredPatterns, activePatterns);
+		const pending = this.settings.pluginPolicyMigrationPending || patternsDiffer;
+		return {
+			desiredPatterns,
+			activePatterns,
+			trackedPaths,
+			pending,
+			pushPending: this.settings.pluginPolicyMigrationPushPending,
+			hasRepository,
+		};
+	}
+
+	/**
+	 * A managed block can arrive from another device during a normal pull. If
+	 * this device has no un-applied local choice, the repository is authoritative
+	 * and the settings mirror it instead of inventing a new pending migration.
+	 */
+	private async adoptManagedPluginPolicyIfSafe(): Promise<void> {
+		if (this.settings.pluginPolicyMigrationPending) return;
+		const inferred = inferPluginPolicySettings(
+			this.app.vault.configDir,
+			await this.readManagedPluginPolicyPatternsFromVault(),
+			this.getInstalledCommunityPlugins(),
+			this.manifest.id
+		);
+		const samePolicies = JSON.stringify(this.settings.pluginSyncPolicies) === JSON.stringify(inferred.pluginSyncPolicies);
+		if (samePolicies && this.settings.communityPluginsSync === inferred.communityPluginsSync && this.settings.pluginPolicyInitialized) return;
+		this.settings.pluginSyncPolicies = inferred.pluginSyncPolicies;
+		this.settings.communityPluginsSync = inferred.communityPluginsSync;
+		this.settings.pluginPolicyInitialized = true;
+		await this.persist();
+	}
+
+	/**
+	 * Explicitly commits and pushes a policy migration. The settings/UI remain
+	 * pending if any step fails, including a rejected push, so a retry can
+	 * finish an already-created local migration commit honestly.
+	 */
+	async applyPluginPolicy(): Promise<PluginPolicyMigrationResult> {
+		await this.settingsLock.run(async () => {
+			this.settings.pluginPolicyMigrationPending = true;
+			await this.persist();
+		});
+		const plugins = this.getInstalledCommunityPlugins();
+		const desiredPatterns = derivePluginPolicyPatterns(
+			this.app.vault.configDir,
+			this.settings.pluginSyncPolicies,
+			this.settings.communityPluginsSync,
+			this.manifest.id
+		);
+		const candidates = await this.pluginPolicyCandidates(plugins);
+		const result = await this.engineLock.run(async () => {
+				const engine = await this.getEngine();
+				const migration = await engine.migratePluginPolicy(
+					desiredPatterns,
+					candidates,
+					"Halyard Sync: apply plugin sync policy"
+				);
+				const relation = await engine.aheadBehind(this.settings.branch);
+				if (relation.state === "diverged" || relation.state === "behind") {
+					this.settings.pluginPolicyMigrationPushPending = true;
+					await this.persist();
+					throw new Error(
+						"The repository changed remotely while the policy was being prepared. " +
+						"Normal sync is still available to merge and retry this migration."
+					);
+				}
+				if (migration.commitOid !== null || relation.state === "ahead") {
+					this.settings.pluginPolicyMigrationPushPending = true;
+					await this.persist();
+					if (relation.state === "ahead") await engine.push({ ref: this.settings.branch });
+				}
+				return migration;
+			});
+		await this.settingsLock.run(async () => {
+			this.settings.pluginPolicyMigrationPending = false;
+			this.settings.pluginPolicyMigrationPushPending = false;
+			await this.persist();
+		});
+		return result;
+	}
+
+	private async refreshPluginPolicyPendingLocked(): Promise<void> {
+		const activePatterns = await this.readManagedPluginPolicyPatternsFromVault();
+		const desiredPatterns = derivePluginPolicyPatterns(
+			this.app.vault.configDir,
+			this.settings.pluginSyncPolicies,
+			this.settings.communityPluginsSync,
+			this.manifest.id
+		);
+		this.settings.pluginPolicyMigrationPending = !policyPatternsEqual(desiredPatterns, activePatterns);
+	}
+
+	private async finishPluginPolicyPushIfSynced(): Promise<void> {
+		if (!this.settings.pluginPolicyMigrationPushPending) return;
+		const desiredPatterns = derivePluginPolicyPatterns(
+			this.app.vault.configDir,
+			this.settings.pluginSyncPolicies,
+			this.settings.communityPluginsSync,
+			this.manifest.id
+		);
+		const activePatterns = await this.readManagedPluginPolicyPatternsFromVault();
+		if (!policyPatternsEqual(desiredPatterns, activePatterns)) return;
+		this.settings.pluginPolicyMigrationPending = false;
+		this.settings.pluginPolicyMigrationPushPending = false;
+	}
+
+	private async readManagedPluginPolicyPatternsFromVault(): Promise<string[]> {
+		if (!(await this.app.vault.adapter.exists(".gitignore"))) return [];
+		return readManagedPluginPolicyPatterns(await this.app.vault.adapter.read(".gitignore"));
+	}
+
+	private async pluginPolicyCandidates(plugins: readonly InstalledPluginForPolicy[]): Promise<string[]> {
+		const localFiles: string[] = [];
+		const walk = async (directory: string): Promise<void> => {
+			const stat = await this.app.vault.adapter.stat(directory);
+			if (stat === null) return;
+			if (stat.type !== "folder") {
+				throw new Error(`Cannot inspect plugin policy path '${directory}': it is not a folder.`);
+			}
+			const listing = await this.app.vault.adapter.list(directory);
+			localFiles.push(...listing.files);
+			for (const folder of listing.folders) await walk(folder);
+		};
+		const policyPlugins = [...plugins];
+		for (const id of Object.keys(this.settings.pluginSyncPolicies)) {
+			if (!policyPlugins.some((plugin) => plugin.id === id)) policyPlugins.push({ id, name: id });
+		}
+		for (const plugin of policyPlugins) {
+			if (plugin.id === this.manifest.id) continue;
+			await walk(`${this.app.vault.configDir}/plugins/${plugin.id}`);
+		}
+		return policyMigrationCandidatePaths(
+			this.app.vault.configDir,
+			policyPlugins,
+			localFiles,
+			this.settings.pluginSyncPolicies,
+			this.settings.communityPluginsSync,
+			this.manifest.id
+		);
+	}
+
+	private async initializePluginPolicyFromGitignore(): Promise<void> {
+		if (this.settings.pluginPolicyInitialized) return;
+		const activePatterns = await this.readManagedPluginPolicyPatternsFromVault();
+		if (activePatterns.length === 0) return;
+		const inferred = inferPluginPolicySettings(
+			this.app.vault.configDir,
+			activePatterns,
+			this.getInstalledCommunityPlugins(),
+			this.manifest.id
+		);
+		this.settings.pluginSyncPolicies = inferred.pluginSyncPolicies;
+		this.settings.communityPluginsSync = inferred.communityPluginsSync;
+		this.settings.pluginPolicyInitialized = true;
+		this.settings.pluginPolicyMigrationPending = false;
+		await this.persist();
+	}
+
 	private async persist(): Promise<void> {
 		const data: SavedData = { ...this.settings };
 		// Tokens go to data.json only in SecretStorage-fallback mode.
@@ -625,7 +893,8 @@ export default class HalyardSyncPlugin extends Plugin {
 			currentBranch: async () => (await this.getEngine()).currentBranch(),
 			getChangedFiles: async () => (await this.getEngine()).getChangedFiles(),
 			getIgnoredChangedFiles: async () => (await this.getEngine()).getIgnoredChangedFiles(),
-			stageAndCommit: async (message) => (await this.getEngine()).stageAndCommit(message),
+			stageAndCommit: async (message, additionalIgnorePatterns) =>
+				(await this.getEngine()).stageAndCommit(message, additionalIgnorePatterns),
 			listRemoteRef: async (branch) => {
 				const engine = await this.getEngine();
 				await engine.ensureRemote(this.settings.remoteUrl);
@@ -634,6 +903,8 @@ export default class HalyardSyncPlugin extends Plugin {
 			remoteTrackingRef: async (branch) => (await this.getEngine()).remoteTrackingRef(branch),
 			localRef: async (branch) => (await this.getEngine()).localRef(branch),
 			fetch: async (branch) => (await this.getEngine()).fetch(branch),
+			remoteManagedPluginPolicyPatterns: async (branch) =>
+				(await this.getEngine()).remoteManagedPluginPolicyPatterns(branch),
 			mergeUpstream: async (branch) => (await this.getEngine()).mergeUpstream(branch),
 			aheadBehind: async (branch) => (await this.getEngine()).aheadBehind(branch),
 			push: async (options) => (await this.getEngine()).push(options),
@@ -827,6 +1098,42 @@ export default class HalyardSyncPlugin extends Plugin {
 			: { url: raw, convertedFromSsh: false };
 	}
 
+	/**
+	 * Reads Git history for a note without changing the vault. This is kept
+	 * behind the same lock as sync because the WASM repository handle is not
+	 * re-entrant; the sidebar only calls it after a user opens the panel.
+	 */
+	async getActiveNoteGitDetails(path: string): Promise<ActiveNoteGitDetailsResult> {
+		if (!this.isConfigured()) {
+			return { kind: "unavailable", message: "Connect a repository to view Git history." };
+		}
+		if (!(await this.hasRepo())) {
+			return { kind: "unavailable", message: "Finish repository setup to view Git history." };
+		}
+		try {
+			const lookup = await this.engineLock.run(async () => (await this.getEngine()).latestCommitForPath(path));
+			if (!lookup.pathExistsAtHead) {
+				return {
+					kind: "untracked",
+					path,
+					message: "This note is not present in the current Git commit.",
+				};
+			}
+			if (lookup.commit === null) {
+				return {
+					kind: "no-history",
+					path,
+					message: lookup.historyComplete
+						? "This tracked path has no readable commit history."
+						: "The Git history is incomplete, likely because this clone is shallow.",
+				};
+			}
+			return { kind: "available", path, commit: lookup.commit };
+		} catch (err) {
+			return { kind: "error", path, message: describeGitError(err) };
+		}
+	}
+
 	private requestSync(reason: string): void {
 		this.orchestrator.requestSync(reason);
 	}
@@ -984,7 +1291,11 @@ export default class HalyardSyncPlugin extends Plugin {
 				await this.seedGitignore();
 				onProgress?.("Creating initial commit");
 				await engine.stageAndCommit(
-					`vault sync: initial import (${this.isMobile ? "mobile" : "desktop"})`
+					formatSyncCommitMessage(
+						new Date().toISOString(),
+						this.isMobile ? "mobile" : "desktop",
+						this.settings.deviceName
+					)
 				);
 				onProgress?.("Pushing");
 				await engine.push({ ref: branch });

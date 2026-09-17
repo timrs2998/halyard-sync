@@ -35,6 +35,7 @@ interface MockScenario {
 	merge?: MergeOutcome;
 	aheadBehind?: AheadBehind;
 	failFetch?: boolean;
+	remotePolicyPatterns?: string[];
 	filterCheck?: FilterCheckResult;
 	/** Defaults to "main" — matches every existing test's `branch: () => "main"`,
 	 * so only tests that care about a mismatch need to override it. */
@@ -43,6 +44,7 @@ interface MockScenario {
 
 function makeEngine(scenario: MockScenario) {
 	const calls: string[] = [];
+	const stagedIgnorePatterns: string[][] = [];
 	const engine: OrchestratorEngine = {
 		detectUnsupportedFilters: async () => {
 			calls.push("detectUnsupportedFilters");
@@ -56,8 +58,9 @@ function makeEngine(scenario: MockScenario) {
 			calls.push("getChangedFiles");
 			return [];
 		},
-		stageAndCommit: async () => {
+		stageAndCommit: async (_message, additionalIgnorePatterns) => {
 			calls.push("stageAndCommit");
+			stagedIgnorePatterns.push([...(additionalIgnorePatterns ?? [])]);
 			return scenario.commitOid ?? null;
 		},
 		listRemoteRef: async (branch) => {
@@ -77,6 +80,10 @@ function makeEngine(scenario: MockScenario) {
 			calls.push("fetch");
 			if (scenario.failFetch === true) throw new Error("network unreachable");
 			return {};
+		},
+		remoteManagedPluginPolicyPatterns: async () => {
+			calls.push("remoteManagedPluginPolicyPatterns");
+			return scenario.remotePolicyPatterns ?? [];
 		},
 		mergeUpstream: async () => {
 			calls.push("mergeUpstream");
@@ -98,7 +105,7 @@ function makeEngine(scenario: MockScenario) {
 			return {};
 		},
 	};
-	return { calls, engine };
+	return { calls, engine, stagedIgnorePatterns };
 }
 
 function makeConflicts(result: ConflictResult) {
@@ -125,7 +132,7 @@ function makeOrchestrator(
 		onExternalWriteBlockChange?: (blocks: Readonly<Record<string, ExternalWriteBlock>>) => void;
 	}
 ) {
-	const { calls, engine } = makeEngine(scenario);
+	const { calls, engine, stagedIgnorePatterns } = makeEngine(scenario);
 	const conflicts = makeConflicts(
 		options?.conflictResult ?? { kind: "manual", message: "paused" }
 	);
@@ -146,7 +153,14 @@ function makeOrchestrator(
 		onExternalWriteBlockChange: options?.onExternalWriteBlockChange,
 	});
 	orchestrator.on((event) => events.push(event));
-	return { calls, conflicts, events, orchestrator, pauseAutoSyncCalls: () => pauseAutoSyncCalls };
+	return {
+		calls,
+		conflicts,
+		events,
+		orchestrator,
+		stagedIgnorePatterns,
+		pauseAutoSyncCalls: () => pauseAutoSyncCalls,
+	};
 }
 
 /** requestSync is fire-and-forget; wait for the run loop to drain. */
@@ -208,6 +222,20 @@ describe("SyncOrchestrator decision table", () => {
 		expect(calls).toContain("fetch");
 		expect(calls).toContain("mergeUpstream");
 		expect(calls).not.toContain("push");
+	});
+
+	it("fetches remote local-only policy before staging local changes", async () => {
+		const { calls, stagedIgnorePatterns, orchestrator } = makeOrchestrator({
+			remoteOid: "ccc",
+			trackingOid: "aaa",
+			localOid: "aaa",
+			remotePolicyPatterns: [".obsidian/plugins/halyard-fetch/"],
+		});
+		orchestrator.requestSync("interval");
+		await drain(orchestrator);
+
+		expect(calls.indexOf("fetch")).toBeLessThan(calls.indexOf("stageAndCommit"));
+		expect(stagedIgnorePatterns).toEqual([[".obsidian/plugins/halyard-fetch/"]]);
 	});
 
 	it("branch missing on the remote -> no fetch/merge, pushes when ahead", async () => {
@@ -646,8 +674,8 @@ describe("SyncOrchestrator single-flight semantics", () => {
 		await drain(orchestrator);
 
 		expect(events.map((e) => e.state)).toEqual([
-			"staging",
 			"fetching",
+			"staging",
 			"integrating",
 			"pushing",
 			"idle",

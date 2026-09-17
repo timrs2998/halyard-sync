@@ -162,6 +162,15 @@ pure-JS reimplementation:
   (`lastSyncAt`, rolling history), so leaving it syncable would mean every sync
   dirties a file the next sync then commits — a self-sustaining commit loop with no
   real vault change behind it.
+- **Active-note history:** `Libgit2Repository.latestCommitForPath()` uses a
+  native C collector to walk the checked-out tip with real libgit2 tree and
+  commit APIs. It compares each exact path with the commit's first parent and
+  returns the commit oid, author signature, timestamp, message, path-presence,
+  and shallow-boundary status in a flat buffer. The TypeScript binding never
+  guesses `git_commit`/`git_signature` struct offsets. `GitEngine` caches the
+  result by path and tip oid (bounded to 32 paths); a new commit or checkout
+  naturally selects a new cache key. This is an exact-path lookup, not rename
+  following, and the active-note panel never writes frontmatter or note data.
 - **Merge:** fast-forward when possible. Diverged: a real, entirely in-memory 3-way
   merge (`git_merge_commits`, deliberately never the working-tree-touching top-level
   `git_merge()` — see `libgit2/engine.ts`'s `merge()` doc comment) that never writes
@@ -333,7 +342,10 @@ catch real git state changing out from under the plugin (a manual `git checkout`
 on the same repo, or a remote branch renamed/deleted upstream).
 
 Commit identity: `name` from settings (default "Halyard Sync"), `email` default
-`halyard-sync@localhost`. Commit message template `vault sync: {date} ({platform})`.
+`halyard-sync@localhost`. New sync commits use
+`vault sync: {date} (platform={platform}; device={device})`. The parser accepts
+the older `vault sync: {date} ({platform})` form and treats it as platform-only;
+non-Halyard commit messages remain valid history with no invented attribution.
 
 ### Conflict strategies (user setting, default = PR branch)
 
@@ -401,6 +413,14 @@ notice degrades to "conflict branch pushed — open a PR manually", never losing
   Formatting logic lives in `sync-panel-model.ts` (obsidian-import-free,
   unit-tested); the view itself is a thin renderer over it, same split
   `statusbar.ts` uses.
+- **Active note Git details:** the same panel includes a read-only section for
+  the currently active Markdown file. It displays the latest exact-path commit,
+  timestamp, Git author, short hash with a full-hash copy action, commit
+  subject, and parsed platform/device attribution. It renders explicit
+  unavailable, untracked, no-history, and error states. Workspace active-file
+  events and the orchestrator's completed-sync timestamp trigger refreshes;
+  the async lookup is serialized through the engine lock and the bounded
+  `GitEngine` cache avoids work on ordinary status/countdown renders.
 - **Settings → Encryption (git-crypt):** import a git-crypt key file (exported via
   `git-crypt export-key`) via a hidden `<input type=file>` triggered by a button (no
   higher-level "pick a file" API in Obsidian) — parsed via `gitcrypt.ts`'s
@@ -454,6 +474,58 @@ write persists a block and prevents automatic or manual sync until a retry
 succeeds or the user clears the block after reviewing the destination. Ignored
 working-tree changes are surfaced in sync status/history instead of appearing
 as an unexplained successful no-op.
+
+### Community plugin distribution policy
+
+The default policy is intentionally backward-compatible: community plugin
+folders and `<configDir>/community-plugins.json` are shareable, while Halyard
+Sync's own `data.json` stays device-local through `ownDataPath`.
+
+The settings UI stores a desired mode for each installed community plugin:
+`shared`, `code-only` (the plugin folder except its standard `data.json`), or
+`device-local` (the complete plugin folder). The enabled-plugin list is
+controlled independently. The desired mode is not treated as effective until
+the repository migration is applied. Effective repository policy is a stable,
+sorted Halyard-managed block in the tracked `.gitignore`; the engine reads that
+block on every status scan, so devices that do not have a plugin installed
+still honor its policy. The block is replaced only when both markers are
+well-formed, and user lines outside it are preserved.
+
+Applying a policy enumerates exact local package paths plus the standard plugin
+filenames (so a locally deleted standard file can still be migrated), checks
+which are present in `HEAD`, removes only those selected paths from the Git
+index, and leaves vault files untouched. The managed block and index changes
+are committed together through `GitEngine` while `engineLock` is held, then
+pushed on the configured branch. If writing, committing, or pushing fails, the
+local settings remain pending. A migration commit whose push was rejected is
+allowed to recover through ordinary sync, which can fetch/merge the remote
+advance before retrying the push; no history rewrite is attempted.
+
+#### Cross-device policy integration
+
+Normal sync checks the advertised branch before staging. If the remote tip has
+advanced, it fetches first and reads only the deterministic Halyard-managed
+plugin-policy patterns from that fetched tree. Those patterns are passed as
+temporary staging exclusions, so local changes to paths the remote policy now
+declares device-local cannot enter a modify/delete merge conflict. The existing
+no-op check, missing-upstream-branch guard, git-crypt guard, and ordinary note
+staging remain in the same sync cycle.
+
+Before a clean fast-forward or three-way merge checkout, `GitEngine` snapshots
+matching local files via `DataAdapter.readBinary()`, including recursive
+directory patterns and their parent folders. It flushes the checkout, restores
+only files that existed in that snapshot, then rehydrates the mirror. This
+protects binary files, custom `configDir` paths, exact `data.json` files,
+`community-plugins.json`, and plugins absent on the receiving device without
+preserving arbitrary user ignore patterns. A conflicted or failed merge does
+not restore the snapshot, so stale bytes cannot overwrite unrelated work.
+
+The candidate set is derived strictly from desired exclusions. A shared plugin
+contributes no removal candidates; code-only contributes only its `data.json`;
+device-local contributes that plugin's package files; and the enabled-plugin
+list contributes its exact JSON path only when it is device-local. This avoids
+untracking unrelated plugins, including on a device that has only a subset of
+the repository's plugins installed.
 
 ## Tooling
 

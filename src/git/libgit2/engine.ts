@@ -85,6 +85,7 @@ import {
 	type Libgit2Author,
 	type Libgit2Module,
 	type Libgit2Repository,
+	type LatestCommitForPath,
 	Libgit2Error,
 	type MergeFileFavor,
 	type MergeOutcome,
@@ -367,6 +368,55 @@ function parsePathValueRecords(
 		results.push({ path, value });
 	}
 	return results;
+}
+
+/** Parses the single record produced by `halyard_latest_commit_for_path`:
+ * three flags, followed by optional oid/timestamp/signature/message fields. */
+function parseLatestCommitForPath(
+	Module: NativeModule,
+	bufPtr: number,
+	count: number
+): LatestCommitForPath {
+	if (count !== 1 || bufPtr === 0) {
+		throw new Error("latestCommitForPath returned an invalid result");
+	}
+	const heap = Module.HEAPU8;
+	const view = new DataView(heap.buffer);
+	let offset = bufPtr;
+	const found = view.getUint32(offset, true) !== 0;
+	offset += 4;
+	const pathExistsAtHead = view.getUint32(offset, true) !== 0;
+	offset += 4;
+	const historyComplete = view.getUint32(offset, true) !== 0;
+	offset += 4;
+	if (!found) return { pathExistsAtHead, historyComplete, commit: null };
+	const decoder = new TextDecoder();
+	const oid = bytesToHex(heap.subarray(offset, offset + OID_SIZE));
+	offset += OID_SIZE;
+	const readString = (): string => {
+		const length = view.getUint32(offset, true);
+		offset += 4;
+		const value = decoder.decode(heap.subarray(offset, offset + length));
+		offset += length;
+		return value;
+	};
+	const timestampText = readString();
+	const timestamp = Number(timestampText);
+	if (!Number.isFinite(timestamp)) throw new Error("latestCommitForPath returned an invalid timestamp");
+	const timezoneOffsetMinutes = view.getInt32(offset, true);
+	offset += 4;
+	return {
+		pathExistsAtHead,
+		historyComplete,
+		commit: {
+			oid,
+			timestamp,
+			timezoneOffsetMinutes,
+			authorName: readString(),
+			authorEmail: readString(),
+			message: readString(),
+		},
+	};
 }
 
 // ---------------------------------------------------------------------------
@@ -1015,25 +1065,27 @@ class Libgit2RepositoryImpl implements Libgit2Repository {
 		const commitPtr = writeOidHex(this.Module, commitOid);
 		const outBuf = mallocOutPtr(this.Module);
 		const outLen = mallocOutPtr(this.Module);
-		const rc = await ccallAsync(this.Module, "halyard_read_blob_at_path", "number", [
-			"number",
-			"number",
-			"string",
-			"number",
-			"number",
-		], [this.repo, commitPtr, path, outBuf, outLen]);
-		Module_free(this.Module, commitPtr);
-		if (rc < 0) {
+		let bufPtr = 0;
+		try {
+			const rc = await ccallAsync(this.Module, "halyard_read_blob_at_path", "number", [
+				"number",
+				"number",
+				"string",
+				"number",
+				"number",
+			], [this.repo, commitPtr, path, outBuf, outLen]);
+			if (rc < 0) throwIfError(this.Module, rc, `readBlob(${commitOid}, ${path})`);
+			bufPtr = this.Module.getValue(outBuf, "i32");
+			const len = this.Module.getValue(outLen, "i32");
+			const out = new Uint8Array(len);
+			out.set(this.Module.HEAPU8.subarray(bufPtr, bufPtr + len));
+			return out;
+		} finally {
+			Module_free(this.Module, commitPtr);
 			Module_free(this.Module, outBuf);
 			Module_free(this.Module, outLen);
-			throwIfError(this.Module, rc, `readBlob(${commitOid}, ${path})`);
+			if (bufPtr) Module_free(this.Module, bufPtr);
 		}
-		const bufPtr = readOutPtr(this.Module, outBuf);
-		const len = readOutPtr(this.Module, outLen);
-		const out = new Uint8Array(len);
-		out.set(this.Module.HEAPU8.subarray(bufPtr, bufPtr + len));
-		if (bufPtr) Module_free(this.Module, bufPtr);
-		return out;
 	}
 
 	async findMergeBase(oidA: Oid, oidB: Oid): Promise<Oid | null> {
@@ -1088,6 +1140,32 @@ class Libgit2RepositoryImpl implements Libgit2Repository {
 		for (let i = 0; i < count; i++) oids.push(readOidHex(this.Module, bufPtr + i * OID_SIZE));
 		if (bufPtr) Module_free(this.Module, bufPtr);
 		return oids;
+	}
+
+	async latestCommitForPath(startOid: Oid, path: RepoPath): Promise<LatestCommitForPath> {
+		this.assertOpen();
+		const startPtr = writeOidHex(this.Module, startOid);
+		const outBuf = mallocOutPtr(this.Module);
+		const outCount = mallocOutPtr(this.Module);
+		let bufPtr = 0;
+		try {
+			const rc = await ccallAsync(this.Module, "halyard_latest_commit_for_path", "number", [
+				"number",
+				"number",
+				"string",
+				"number",
+				"number",
+			], [this.repo, startPtr, path, outBuf, outCount]);
+			if (rc < 0) throwIfError(this.Module, rc, `latestCommitForPath(${path})`);
+			bufPtr = this.Module.getValue(outBuf, "i32");
+			const count = this.Module.getValue(outCount, "i32");
+			return parseLatestCommitForPath(this.Module, bufPtr, count);
+		} finally {
+			Module_free(this.Module, startPtr);
+			Module_free(this.Module, outBuf);
+			Module_free(this.Module, outCount);
+			if (bufPtr) Module_free(this.Module, bufPtr);
+		}
 	}
 
 	// -- merge / checkout ---------------------------------------------------

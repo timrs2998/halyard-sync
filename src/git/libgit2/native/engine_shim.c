@@ -36,6 +36,7 @@
  */
 
 #include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
 
 #include <emscripten.h>
@@ -241,6 +242,225 @@ int halyard_revwalk_collect(
 
 	*out_buf = buf;
 	*out_count = count;
+	return 0;
+}
+
+/* ---------------------------------------------------------------------------
+ * latestCommitForPath(): one record containing the newest exact-path change
+ * and its commit metadata.
+ *
+ * Record shape:
+ *   [u32 found][u32 pathExistsAtHead][u32 historyComplete]
+ *   [20-byte oid][u32 timestampLen][timestamp bytes][i32 timezoneOffset]
+ *   [u32 authorNameLen][authorName bytes]
+ *   [u32 authorEmailLen][authorEmail bytes]
+ *   [u32 messageLen][message bytes]
+ *
+ * The metadata is collected in C because git_commit and git_signature are
+ * opaque to the JavaScript side. The walk compares each commit's tree entry
+ * with its first parent's entry, matching `git log -- <path>`'s exact-path
+ * semantics. A missing parent object is treated as a shallow boundary rather
+ * than guessed to be a root commit.
+ * ---------------------------------------------------------------------------
+ */
+
+static int tree_path_oid(
+	const git_tree *tree,
+	const char *path,
+	git_oid *out_oid,
+	int *out_found) {
+	git_tree_entry *entry = NULL;
+	int rc = git_tree_entry_bypath(&entry, tree, path);
+	if (rc == GIT_ENOTFOUND) {
+		*out_found = 0;
+		return 0;
+	}
+	if (rc < 0) return rc;
+	const git_oid *entry_oid = git_tree_entry_id(entry);
+	if (entry_oid == NULL) {
+		git_tree_entry_free(entry);
+		return -1;
+	}
+	memcpy(out_oid->id, entry_oid->id, GIT_OID_SHA1_SIZE);
+	*out_found = 1;
+	git_tree_entry_free(entry);
+	return 0;
+}
+
+static int append_string_record(
+	uint8_t **buf,
+	size_t *len,
+	size_t *cap,
+	const char *value) {
+	const char *safe = value == NULL ? "" : value;
+	uint32_t value_len = (uint32_t)strlen(safe);
+	return append_u32(buf, len, cap, value_len) == 0 &&
+		buf_append(buf, len, cap, safe, value_len) == 0 ? 0 : -1;
+}
+
+static int append_commit_metadata_record(
+	uint8_t **buf,
+	size_t *len,
+	size_t *cap,
+	const git_commit *commit,
+	const git_oid *oid) {
+	const git_signature *author = git_commit_author(commit);
+	char timestamp[32];
+	long long author_time = author == NULL ? 0 : (long long)author->when.time;
+	int timezone_offset = author == NULL ? 0 : author->when.offset;
+	snprintf(timestamp, sizeof(timestamp), "%lld", author_time);
+
+	if (buf_append(buf, len, cap, oid->id, GIT_OID_SHA1_SIZE) < 0 ||
+		append_string_record(buf, len, cap, timestamp) < 0 ||
+		append_u32(buf, len, cap, (uint32_t)timezone_offset) < 0 ||
+		append_string_record(buf, len, cap, author == NULL ? NULL : author->name) < 0 ||
+		append_string_record(buf, len, cap, author == NULL ? NULL : author->email) < 0 ||
+		append_string_record(buf, len, cap, git_commit_message(commit)) < 0) {
+		return -1;
+	}
+	return 0;
+}
+
+EMSCRIPTEN_KEEPALIVE
+int halyard_latest_commit_for_path(
+	git_repository *repo,
+	const uint8_t *start_oid,
+	const char *path,
+	uint8_t **out_buf,
+	size_t *out_count) {
+	git_oid start;
+	memcpy(start.id, start_oid, GIT_OID_SHA1_SIZE);
+
+	git_commit *head_commit = NULL;
+	int rc = git_commit_lookup(&head_commit, repo, &start);
+	if (rc < 0) return rc;
+	git_tree *head_tree = NULL;
+	rc = git_commit_tree(&head_tree, head_commit);
+	if (rc < 0) {
+		git_commit_free(head_commit);
+		return rc;
+	}
+	git_oid head_path_oid;
+	int path_exists_at_head = 0;
+	rc = tree_path_oid(head_tree, path, &head_path_oid, &path_exists_at_head);
+	git_tree_free(head_tree);
+	git_commit_free(head_commit);
+	if (rc < 0) return rc;
+
+	git_revwalk *walk = NULL;
+	rc = git_revwalk_new(&walk, repo);
+	if (rc < 0) return rc;
+	git_revwalk_sorting(walk, GIT_SORT_TOPOLOGICAL | GIT_SORT_TIME);
+	rc = git_revwalk_push(walk, &start);
+	if (rc < 0) {
+		git_revwalk_free(walk);
+		return rc;
+	}
+
+	uint8_t *buf = NULL;
+	size_t len = 0, cap = 0;
+	const uint32_t found_false = 0;
+	const uint32_t found_true = 1;
+	int history_complete = 1;
+	git_commit *matching_commit = NULL;
+	git_oid matching_oid;
+	git_oid oid;
+	for (;;) {
+		rc = git_revwalk_next(&oid, walk);
+		if (rc == GIT_ITEROVER) {
+			rc = 0;
+			break;
+		}
+		if (rc < 0) break;
+
+		git_commit *commit = NULL;
+		rc = git_commit_lookup(&commit, repo, &oid);
+		if (rc < 0) break;
+		git_tree *tree = NULL;
+		rc = git_commit_tree(&tree, commit);
+		if (rc < 0) {
+			git_commit_free(commit);
+			break;
+		}
+		git_oid current_oid;
+		int current_found = 0;
+		rc = tree_path_oid(tree, path, &current_oid, &current_found);
+		git_tree_free(tree);
+		if (rc < 0) {
+			git_commit_free(commit);
+			break;
+		}
+
+		unsigned int parent_count = git_commit_parentcount(commit);
+		int changed = 0;
+		if (parent_count == 0) {
+			changed = current_found;
+		} else {
+			git_commit *parent = NULL;
+			rc = git_commit_parent(&parent, commit, 0);
+			if (rc == GIT_ENOTFOUND) {
+				/* The tip of a shallow clone may advertise a parent whose
+				 * object was not downloaded. Do not call it a root commit. */
+				history_complete = 0;
+				git_commit_free(commit);
+				break;
+			}
+			if (rc < 0) {
+				git_commit_free(commit);
+				break;
+			}
+			git_tree *parent_tree = NULL;
+			rc = git_commit_tree(&parent_tree, parent);
+			if (rc < 0) {
+				git_commit_free(parent);
+				git_commit_free(commit);
+				break;
+			}
+			git_oid parent_oid;
+			int parent_found = 0;
+			rc = tree_path_oid(parent_tree, path, &parent_oid, &parent_found);
+			git_tree_free(parent_tree);
+			git_commit_free(parent);
+			if (rc < 0) {
+				git_commit_free(commit);
+				break;
+			}
+			changed = current_found != parent_found ||
+				(current_found && memcmp(current_oid.id, parent_oid.id, GIT_OID_SHA1_SIZE) != 0);
+		}
+
+		if (changed) {
+			matching_commit = commit;
+			matching_oid = oid;
+			break;
+		}
+		git_commit_free(commit);
+	}
+	git_revwalk_free(walk);
+	if (rc != 0) {
+		free(buf);
+		if (matching_commit != NULL) git_commit_free(matching_commit);
+		return rc;
+	}
+
+	if (append_u32(&buf, &len, &cap, matching_commit == NULL ? found_false : found_true) < 0 ||
+		append_u32(&buf, &len, &cap, path_exists_at_head ? found_true : found_false) < 0 ||
+		append_u32(&buf, &len, &cap, history_complete ? found_true : found_false) < 0) {
+		free(buf);
+		if (matching_commit != NULL) git_commit_free(matching_commit);
+		return -1;
+	}
+	if (matching_commit != NULL) {
+		if (append_commit_metadata_record(&buf, &len, &cap, matching_commit, &matching_oid) < 0) {
+			free(buf);
+			git_commit_free(matching_commit);
+			return -1;
+		}
+		git_commit_free(matching_commit);
+	}
+
+	*out_buf = buf;
+	*out_count = 1;
 	return 0;
 }
 

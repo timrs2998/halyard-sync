@@ -55,6 +55,42 @@ Basic-auth convention requires for pull requests even though git sync itself doe
 - `.obsidian/workspace*` and `.trash/` never sync. Add your own ignore globs as
   needed.
 
+### Community plugin and Obsidian config policy
+
+Settings → Plugin sync lists the community plugins installed in this vault. For
+each plugin choose one of:
+
+- Share plugin + settings — sync the plugin folder, including its standard
+  `data.json` settings.
+- Share code; keep settings local — sync the plugin files but keep that
+  plugin's `data.json` on each device.
+- Device-local plugin folder — keep the complete plugin folder on each device.
+
+The enabled-plugin list has its own control for sharing or keeping
+`<configDir>/community-plugins.json` local. The default is the existing
+behavior: plugin files and the enabled list remain shareable. Halyard Sync's
+own operational `data.json` is always device-local, while its code remains
+shareable.
+
+Non-shared choices are vault/repository-wide distribution policy. They are not
+per-consumer pull filters: every device using the repository sees the same
+managed policy. Halyard Sync records it in a marked block in the tracked
+`.gitignore`, preserving user-written lines. If a selected path is already
+tracked, Git's normal ignore rules cannot stop it from being distributed. The
+settings page shows the exact paths and requires an explicit “Review and
+apply” confirmation before removing them from the index. That migration keeps
+local files in place, creates one migration commit, and pushes it without
+rewriting history. A failed push leaves the policy visibly pending; ordinary
+sync remains available to fetch/merge and retry the push.
+
+When a device receives a newer managed policy, Halyard Sync fetches that policy
+before staging local edits. During a clean fast-forward or merge it snapshots
+the matching local plugin files through Obsidian's DataAdapter and restores
+their exact bytes, including parent folders, after checkout. Only the
+deterministic plugin-policy patterns are protected; user ignore rules are not
+used for this restoration. Conflicted or failed integrations do not restore a
+stale snapshot over the working tree.
+
 ### Generated content and managed exclusions
 
 Halyard Sync supports both generated-content topologies. A producer plugin such
@@ -70,6 +106,22 @@ successfully or you clear the block from the sync panel after reviewing the
 destination. A broader user ignore such as `Sources/` can still exclude a
 shared destination; the producer receives that pattern as a diagnostic, and
 the user pattern remains under their control.
+
+### Active note Git details
+
+Open the Halyard Sync sidebar while viewing a Markdown note to see the latest
+commit that changed that exact path. The read-only section shows the commit
+timestamp, author identity from Git, short hash, full-hash copy action, commit
+message, and Halyard platform/device attribution when the commit uses the
+current sync message format. Existing `vault sync: ... (desktop)` commits are
+parsed as platform-only; unrelated commits do not invent a device.
+
+The lookup reads the checked-out branch's commit tree through the bundled
+libgit2-WASM engine. It does not write frontmatter, note properties, or any
+other note content. An untracked note, a tracked path with unavailable/shallow
+history, and a Git read error are shown as distinct states. The panel refreshes
+when the active file changes and after a sync; results are cached by path and
+branch tip so ordinary panel redraws do not repeat history walks.
 
 ## Platform support
 
@@ -212,6 +264,9 @@ uses the settings overrides under Account → Advanced.
 - **HTTPS only, no SSH** — impossible on mobile: no subprocess, no SSH transport.
 - **Shallow clones by default** (mobile memory; `requestUrl` buffers whole
   responses). Escape hatch: re-clone on desktop.
+- Active-note history follows the exact current path and checked-out branch; it
+  does not follow renames. A shallow clone can only report history present in
+  the downloaded objects.
 - **No submodules, no LFS, no rebase or history rewrite.**
 - **No gitattributes filter drivers besides git-crypt.** Git LFS and any other custom
   clean/smudge filter are unconditionally unsupported: the wizard and every sync
@@ -248,7 +303,9 @@ Emscripten. Regenerate them only when `src/git/libgit2/native/*.c` changes — s
 [wdio-obsidian-service](https://github.com/jesse-r-s-hines/wdio-obsidian-service),
 which downloads a real Obsidian build (cached in `.obsidian-cache/`, gitignored) and
 drives it against `e2e/vaults/simple` — once as desktop Obsidian, once under
-emulated-mobile UI. Requires `main.js` to be built first.
+emulated-mobile UI. Requires `main.js` to be built first. GitHub Actions runs this
+coverage on pushes, pull requests, and release tags on Ubuntu with Xvfb and
+herbstluftwm; it does not test a physical iOS device.
 
 Architecture lives in [DESIGN.md](DESIGN.md), the engine layer in
 [`src/git/libgit2/README.md`](src/git/libgit2/README.md), and contributor conventions

@@ -11,9 +11,13 @@
  * (obsidian-import-free, unit-tested); see that file's header comment for why.
  */
 
-import { ItemView, Setting, type WorkspaceLeaf } from "obsidian";
+import { ItemView, Notice, Setting, type WorkspaceLeaf } from "obsidian";
 import { HALYARD_SYNC_ICON_ID } from "./icon";
 import { SyncHistoryModal } from "./modals";
+import {
+	buildActiveNoteGitDetailsViewModel,
+	type ActiveNoteGitDetailsPanelState,
+} from "./active-note-git-details";
 import { buildSyncPanelViewModel } from "./sync-panel-model";
 import type HalyardSyncPlugin from "../main";
 
@@ -22,6 +26,10 @@ export const HALYARD_SYNC_VIEW_TYPE = "halyard-sync-panel";
 export class HalyardSyncView extends ItemView {
 	private unsubscribe: (() => void) | null = null;
 	private refreshTimer: number | null = null;
+	private activeNoteRefreshTimer: number | null = null;
+	private activeNoteRequest = 0;
+	private activeNoteDetails: ActiveNoteGitDetailsPanelState = { kind: "not-applicable" };
+	private lastSyncAt: number | null = null;
 
 	constructor(
 		leaf: WorkspaceLeaf,
@@ -43,20 +51,98 @@ export class HalyardSyncView extends ItemView {
 	}
 
 	async onOpen(): Promise<void> {
-		this.unsubscribe = this.plugin.orchestrator.on(() => this.render());
+		this.lastSyncAt = this.plugin.orchestrator.status.lastSyncAt;
+		this.unsubscribe = this.plugin.orchestrator.on((event) => {
+			this.render();
+			if (event.lastSyncAt !== this.lastSyncAt) {
+				this.lastSyncAt = event.lastSyncAt;
+				this.scheduleActiveNoteRefresh();
+			}
+		});
+		this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.scheduleActiveNoteRefresh()));
+		this.registerEvent(this.app.workspace.on("file-open", () => this.scheduleActiveNoteRefresh()));
 		// Keeps relative times and the next-sync countdown fresh even when no
 		// status event fires for a while — same interval statusbar.ts's
 		// controller already uses for the same reason.
 		this.refreshTimer = window.setInterval(() => this.render(), 30_000);
 		this.render();
+		this.scheduleActiveNoteRefresh();
 	}
 
 	async onClose(): Promise<void> {
+		this.activeNoteRequest += 1;
 		this.unsubscribe?.();
 		this.unsubscribe = null;
 		if (this.refreshTimer !== null) {
 			window.clearInterval(this.refreshTimer);
 			this.refreshTimer = null;
+		}
+		if (this.activeNoteRefreshTimer !== null) {
+			window.clearTimeout(this.activeNoteRefreshTimer);
+			this.activeNoteRefreshTimer = null;
+		}
+	}
+
+	private scheduleActiveNoteRefresh(): void {
+		if (this.activeNoteRefreshTimer !== null) return;
+		this.activeNoteRefreshTimer = window.setTimeout(() => {
+			this.activeNoteRefreshTimer = null;
+			void this.refreshActiveNoteDetails();
+		}, 0);
+	}
+
+	private async refreshActiveNoteDetails(): Promise<void> {
+		const file = this.app.workspace.getActiveFile();
+		const path = file !== null && file.extension.toLowerCase() === "md" ? file.path : null;
+		const request = ++this.activeNoteRequest;
+		if (path === null) {
+			this.activeNoteDetails = { kind: "not-applicable" };
+			this.render();
+			return;
+		}
+		this.activeNoteDetails = { kind: "loading", path };
+		this.render();
+		try {
+			const result = await this.plugin.getActiveNoteGitDetails(path);
+			if (request !== this.activeNoteRequest) return;
+			this.activeNoteDetails = result;
+		} catch (err) {
+			if (request !== this.activeNoteRequest) return;
+			this.activeNoteDetails = { kind: "error", path, message: String(err) };
+		}
+		this.render();
+	}
+
+	private renderActiveNoteGitDetails(container: HTMLElement): void {
+		const model = buildActiveNoteGitDetailsViewModel(this.activeNoteDetails);
+		const section = container.createDiv({ cls: "halyard-active-note-git-details" });
+		section.createEl("h4", { text: "Active note Git details" });
+		if (model.path !== null) section.createEl("p", { text: model.path, cls: "halyard-active-note-git-path" });
+		section.createEl("p", { text: model.message, cls: "halyard-active-note-git-message" });
+		if (model.commitMessage !== null) {
+			section.createEl("p", { text: model.commitMessage, cls: "halyard-active-note-git-commit-message" });
+		}
+		for (const row of model.rows) {
+			const setting = new Setting(section).setName(row.label).setDesc(row.value);
+			if (row.copyValue !== undefined) {
+				setting.addButton((button) => {
+					button
+						.setButtonText("Copy")
+						.setTooltip(`${row.copyLabel ?? "Copy value"}: ${row.copyValue}`)
+						.onClick(() => void this.copyValue(row.copyValue as string));
+					button.buttonEl.setAttribute("aria-label", `${row.copyLabel ?? "Copy value"}: ${row.copyValue}`);
+				});
+			}
+		}
+	}
+
+	private async copyValue(value: string): Promise<void> {
+		try {
+			if (navigator.clipboard === undefined) throw new Error("Clipboard access is unavailable");
+			await navigator.clipboard.writeText(value);
+			new Notice("Halyard Sync: commit hash copied");
+		} catch {
+			new Notice("Halyard Sync: could not copy the commit hash");
 		}
 	}
 
@@ -77,6 +163,7 @@ export class HalyardSyncView extends ItemView {
 
 		container.createEl("h3", { text: model.headline });
 		container.createEl("p", { text: model.detail, cls: "halyard-sync-view-detail" });
+		this.renderActiveNoteGitDetails(container);
 
 		if (model.primaryAction === "setup") {
 			// Nothing to sync/resolve/schedule yet — a "Sync now" button here
