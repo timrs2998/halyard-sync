@@ -12,7 +12,7 @@
  * convention every `tests/libgit2/*.test.ts` file uses.
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -20,6 +20,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createGitEngine, GitEngine } from "../src/git/engine";
 import { wrapLibgit2Module } from "../src/git/libgit2/engine";
+import { VaultMirror } from "../src/git/libgit2/fs-backend";
 import type { RequestUrlLike } from "../src/git/http-client";
 import type { GitCryptKeyMaterial } from "../src/auth/secrets";
 import { startGitHttpBackend } from "./libgit2/helpers/git-http-backend";
@@ -854,5 +855,54 @@ describe.skipIf(factory === null)("GitEngine.testConnection (real HTTP, no repos
 		// Port 1 is reserved and never listening.
 		await expect(engine.testConnection("http://127.0.0.1:1/nope.git")).rejects.toThrow();
 		await engine.close();
+	});
+});
+
+describe.skipIf(factory === null)("GitEngine stat cache after checkout", () => {
+	it("stops re-hashing checked-out files once a status has confirmed them clean", async () => {
+		const { server, seedDir, bareDir } = await setupSharedRemote("a.md");
+		try {
+			mkdirSync(join(seedDir, "Files"));
+			for (let i = 0; i < 3; i++) writeFileSync(join(seedDir, `Files/big${i}.bin`), Buffer.alloc(300_000, i));
+			pushRemoteChange(seedDir, bareDir, "b.md", "b\n", "more files");
+
+			const adapter = new MockAdapter();
+			const cloner = await makeEngine(adapter, makeRealRequestUrl());
+			await cloner.clone({ url: server.url });
+			await cloner.close();
+
+			// Worktree contents libgit2 reads from the mirror, i.e. files it hashes.
+			const hashed: string[] = [];
+			const readFile = Object.getOwnPropertyDescriptor(VaultMirror.prototype, "readFile")!.value as (this: VaultMirror, path: string) => Uint8Array;
+			const spy = vi.spyOn(VaultMirror.prototype, "readFile").mockImplementation(function (this: VaultMirror, path: string) {
+				if (!path.startsWith(".git")) hashed.push(path);
+				return readFile.call(this, path);
+			});
+			try {
+				// Checkout stamped the index with the mirror's write time; the
+				// adapter reports its own. The first status after a restart has
+				// to hash to find out the files are clean...
+				const first = await makeEngine(adapter, makeRealRequestUrl());
+				expect(await first.getChangedFiles()).toEqual([]);
+				expect(hashed.length).toBeGreaterThan(0);
+				await first.close();
+
+				// ...and records that, so later ones, across a restart too, don't.
+				hashed.length = 0;
+				const second = await makeEngine(adapter, makeRealRequestUrl());
+				expect(await second.getChangedFiles()).toEqual([]);
+				expect(await second.getChangedFiles()).toEqual([]);
+				expect(hashed).toEqual([]);
+
+				await adapter.write("b.md", "b edited\n");
+				expect(await second.getChangedFiles()).toEqual([{ path: "b.md", status: "modified" }]);
+				expect(hashed.filter((path) => path !== "b.md")).toEqual([]);
+				await second.close();
+			} finally {
+				spy.mockRestore();
+			}
+		} finally {
+			await server.close();
+		}
 	});
 });

@@ -927,6 +927,9 @@ export class GitEngine {
 		this.opts.mirror.reset();
 		await this.opts.mirror.hydrateAll(this.opts.adapter);
 		const entries = await repo.status();
+		// Status refreshes the index's stat cache (see halyard_status_collect);
+		// persist it now, or the next re-hydrate drops it as unflushed work.
+		await this.flush();
 		const managedPolicy = await this.readTextFile(".gitignore");
 		const managedPatterns = managedPolicy === null
 			? []
