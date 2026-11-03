@@ -688,6 +688,9 @@ export class GitEngine {
 	 * instance pointed at an existing `.git`. */
 	private async ensureRepo(): Promise<Libgit2Repository> {
 		this.assertOpen();
+		// The mirror leaves files libgit2 won't open unread; read any that a
+		// previous operation (a merge, a reset) made it want again.
+		await this.opts.mirror.loadStale(this.opts.adapter);
 		if (this.repo !== null) return this.repo;
 		const hasGit = await this.opts.adapter.exists(".git");
 		if (!hasGit) {
@@ -924,9 +927,11 @@ export class GitEngine {
 
 	async getChangedFilesDetail(additionalIgnorePatterns: readonly string[] = []): Promise<ChangedFilesResult> {
 		const repo = await this.ensureRepo();
-		this.opts.mirror.reset();
-		await this.opts.mirror.hydrateAll(this.opts.adapter);
+		await this.opts.mirror.refresh(this.opts.adapter);
 		const entries = await repo.status();
+		// Status refreshes the index's stat cache (see halyard_status_collect);
+		// persist it now, or the next re-hydrate drops it as unflushed work.
+		await this.flush();
 		const managedPolicy = await this.readTextFile(".gitignore");
 		const managedPatterns = managedPolicy === null
 			? []
@@ -1043,8 +1048,7 @@ export class GitEngine {
 		// general stageAndCommit path after unstagePath() would re-hydrate from
 		// the adapter and restore the pre-removal .git/index, losing index-only
 		// removals before commit.
-		this.opts.mirror.reset();
-		await this.opts.mirror.hydrateAll(this.opts.adapter);
+		await this.opts.mirror.refresh(this.opts.adapter);
 		if (gitignoreChanged) await repo.stagePath(".gitignore");
 
 		// Local enumeration covers unchanged package files. Status contributes
@@ -1280,8 +1284,7 @@ export class GitEngine {
 			case "merged":
 				await this.flush();
 				await this.restorePluginPolicySnapshot(snapshot);
-				this.opts.mirror.reset();
-				await this.opts.mirror.hydrateAll(this.opts.adapter);
+				await this.opts.mirror.refresh(this.opts.adapter);
 				return outcome;
 			case "conflict":
 				return { kind: "conflict", files: outcome.paths };
@@ -1565,7 +1568,7 @@ export interface CreateGitEngineOptions {
 export async function createGitEngine(options: CreateGitEngineOptions): Promise<GitEngine> {
 	const rawModule = await options.instantiateModule();
 	const mirror = new VaultMirror();
-	await mirror.hydrateAll(options.adapter);
+	await mirror.hydrateAll(options.adapter, "", { lazy: true });
 
 	const Module = rawModule;
 	const errnoCodes = deriveErrnoCodes(Module);

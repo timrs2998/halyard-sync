@@ -142,6 +142,90 @@ interface FileEntry {
 	ctimeMs: number;
 	/** Written since the last `flush()`; `flush()` only touches these. */
 	dirty: boolean;
+	/** Set while the content is still on the adapter only (`data` is empty):
+	 * the file's size. See `hydrateAll`'s `lazy` option. */
+	lazySize?: number;
+}
+
+const sizeOf = (entry: FileEntry): number => entry.lazySize ?? entry.data.byteLength;
+
+/** One `.git/index` entry's stat fields, in the units `VaultMirror` keeps. */
+interface IndexStat {
+	mtimeMs: number;
+	ctimeMs: number;
+	ino: number;
+	mode: number;
+	uid: number;
+	gid: number;
+	size: number;
+}
+
+interface IndexStats {
+	/** `null` for a path with conflict stages: never left unread. */
+	entries: Map<string, IndexStat | null>;
+	/** The index file's own mtime, for libgit2's racy-clean rule. */
+	mtimeMs: number;
+}
+
+/**
+ * Reads the stat fields out of a version 2 or 3 `.git/index` (the versions
+ * libgit2 writes). Anything else, or a truncated file, returns null, which
+ * just means every file gets read.
+ */
+function parseIndexStats(buf: Uint8Array): Map<string, IndexStat | null> | null {
+	if (buf.byteLength < 12) return null;
+	const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+	if (view.getUint32(0) !== 0x44495243) return null; // "DIRC"
+	const version = view.getUint32(4);
+	if (version !== 2 && version !== 3) return null;
+	const count = view.getUint32(8);
+	const decoder = new TextDecoder();
+	const out = new Map<string, IndexStat | null>();
+	let pos = 12;
+	for (let i = 0; i < count; i++) {
+		if (pos + 62 > buf.byteLength) return null;
+		const flags = view.getUint16(pos + 60);
+		const nameStart = pos + 62 + (version === 3 && (flags & 0x4000) !== 0 ? 2 : 0);
+		const nameLen = flags & 0xfff;
+		const nameEnd = nameLen < 0xfff ? nameStart + nameLen : buf.indexOf(0, nameStart);
+		if (nameEnd < 0 || nameEnd > buf.byteLength) return null;
+		const path = decoder.decode(buf.subarray(nameStart, nameEnd));
+		const stage = (flags >> 12) & 3;
+		if (stage !== 0 || out.has(path)) {
+			out.set(path, null);
+		} else {
+			out.set(path, {
+				ctimeMs: view.getUint32(pos) * 1000 + view.getUint32(pos + 4) / 1e6,
+				mtimeMs: view.getUint32(pos + 8) * 1000 + view.getUint32(pos + 12) / 1e6,
+				ino: view.getUint32(pos + 20),
+				mode: view.getUint32(pos + 24),
+				uid: view.getUint32(pos + 28),
+				gid: view.getUint32(pos + 32),
+				size: view.getUint32(pos + 36),
+			});
+		}
+		// Entries are NUL-padded to a multiple of 8 bytes, with at least one NUL.
+		pos += Math.floor((nameEnd - pos + 8) / 8) * 8;
+	}
+	return out;
+}
+
+/**
+ * Whether libgit2 will trust this file's stat and skip reading it: the same
+ * fields its status compares (getattr reports ino, uid and gid as 0, and
+ * modes as 0644), minus its racy-clean case, where an entry not older than
+ * the index file gets re-hashed. libgit2 is built with nanosecond times
+ * (GIT_USE_NSEC), and every time here comes from the adapter in
+ * milliseconds, so comparing milliseconds is exact.
+ */
+function statMatchesIndex(entry: IndexStat, size: number, mtimeMs: number, ctimeMs: number, indexMtimeMs: number): boolean {
+	return entry.size === size &&
+		size > 0 &&
+		(entry.mode === 0o100644 || entry.mode === 0o100755) &&
+		entry.ino === 0 && entry.uid === 0 && entry.gid === 0 &&
+		entry.mtimeMs === mtimeMs &&
+		entry.ctimeMs === ctimeMs &&
+		mtimeMs < indexMtimeMs;
 }
 
 interface DirEntry {
@@ -174,10 +258,19 @@ export interface VaultMirrorStat {
  */
 const YIELD_EVERY = 200;
 
+/** How many adapter `stat` calls `refresh()` keeps in flight at once. */
+const STAT_BATCH = 16;
+
 function maybeYield(counter: { n: number }): Promise<void> {
 	counter.n += 1;
 	if (counter.n % YIELD_EVERY !== 0) return Promise.resolve();
 	return new Promise((resolve) => window.setTimeout(resolve, 0));
+}
+
+/** `.gitignore`, `.gitattributes` and `.gitmodules`: libgit2 reads these
+ * itself during status, so they are never left unread. */
+function isGitControlFile(p: string): boolean {
+	return p.slice(p.lastIndexOf("/") + 1).startsWith(".git");
 }
 
 function parentOf(p: string): string {
@@ -234,7 +327,7 @@ export class VaultMirror {
 		return {
 			path: p,
 			isDirectory: false,
-			size: entry.data.byteLength,
+			size: sizeOf(entry),
 			mtimeMs: entry.mtimeMs,
 			ctimeMs: entry.ctimeMs,
 		};
@@ -260,7 +353,27 @@ export class VaultMirror {
 		const entry = this.entries.get(p);
 		if (entry === undefined) throw new VaultMirrorError("ENOENT", "open", path);
 		if (entry.kind === "dir") throw new VaultMirrorError("EISDIR", "read", path);
+		if (entry.lazySize !== undefined) {
+			// The bytes are only on the adapter, and this call can't wait for
+			// them. Fail the operation instead of handing libgit2 an empty
+			// file; the next loadStale() reads this one.
+			this.lazyMisses.add(p);
+			throw new VaultMirrorError("EIO", "read", path);
+		}
 		return entry.data;
+	}
+
+	/** True while `path`'s content hasn't been read from the adapter. */
+	isLazy(path: string): boolean {
+		const entry = this.entries.get(this.normalize(path));
+		return entry?.kind === "file" && entry.lazySize !== undefined;
+	}
+
+	/** Files whose content is still only on the adapter. */
+	lazyCount(): number {
+		let n = 0;
+		for (const entry of this.entries.values()) if (entry.kind === "file" && entry.lazySize !== undefined) n++;
+		return n;
 	}
 
 	// -- writes -----------------------------------------------------------
@@ -326,6 +439,11 @@ export class VaultMirror {
 		const to = this.normalize(newPath);
 		const entry = this.entries.get(from);
 		if (entry === undefined) throw new VaultMirrorError("ENOENT", "rename", oldPath);
+		if (entry.kind === "file" && entry.lazySize !== undefined) {
+			// flush() would write the moved entry's empty placeholder.
+			this.lazyMisses.add(from);
+			throw new VaultMirrorError("EIO", "rename", oldPath);
+		}
 		this.ensureParents(to);
 		this.entries.delete(from);
 		this.entries.set(to, entry.kind === "file" ? { ...entry, dirty: true } : entry);
@@ -348,6 +466,9 @@ export class VaultMirror {
 	 * knows to remove them from the adapter too (a plain overwrite pass
 	 * over `entries` would never observe a deletion). */
 	private readonly deletions = new Set<string>();
+
+	/** Unread files something tried to read; `loadStale()` reads them. */
+	private readonly lazyMisses = new Set<string>();
 
 	/**
 	 * Discards every in-memory entry (back to just the empty root), for a
@@ -373,11 +494,102 @@ export class VaultMirror {
 	 * Recursively read `subtree` (default: the whole vault) out of
 	 * `adapter` into memory. This is the "populate" half of the IDBFS-style
 	 * `syncfs(populate=true, ...)` analogue — see the file header for why
-	 * this is eager rather than lazy/read-through.
+	 * this is not read-through.
+	 *
+	 * With `lazy`, a whole-vault hydrate reads `.git` first and then leaves
+	 * unread every working-tree file whose stat matches its index entry the
+	 * way libgit2's status checks it: status will not open those, and they
+	 * are most of a vault's bytes. Only their stat is kept. A file libgit2
+	 * does try to read fails that operation with EIO rather than reading as
+	 * empty; `loadStale()`, which runs before every engine operation, reads
+	 * any file whose index entry no longer matches, and any that failed.
 	 */
-	async hydrateAll(adapter: DataAdapterLike, subtree = ""): Promise<void> {
+	async hydrateAll(adapter: DataAdapterLike, subtree = "", opts: { lazy?: boolean } = {}): Promise<void> {
 		const root = this.normalize(subtree);
-		await this.hydrateDir(adapter, root, { n: 0 });
+		const counter = { n: 0 };
+		if (!opts.lazy || root !== "") {
+			await this.hydrateDir(adapter, root, counter);
+			return;
+		}
+		this.entries.set("", { kind: "dir" });
+		const top = await adapter.list("/");
+		const gitDir = top.folders.map((f) => this.normalize(f)).find((f) => f === ".git");
+		if (gitDir !== undefined) await this.hydrateDir(adapter, gitDir, counter);
+		const index = this.readIndexStats();
+
+		const files: string[] = top.files.map((f) => this.normalize(f));
+		const walk = async (dir: string): Promise<void> => {
+			this.entries.set(dir, { kind: "dir" });
+			const listing = await adapter.list(dir);
+			for (const folder of listing.folders) await walk(this.normalize(folder));
+			for (const file of listing.files) files.push(this.normalize(file));
+		};
+		for (const folder of top.folders) {
+			const dir = this.normalize(folder);
+			if (dir !== ".git") await walk(dir);
+		}
+
+		for (let i = 0; i < files.length; i += STAT_BATCH) {
+			const batch = files.slice(i, i + STAT_BATCH);
+			const stats = await Promise.all(batch.map((f) => adapter.stat(f)));
+			for (let j = 0; j < batch.length; j++) {
+				const p = batch[j];
+				const st = stats[j];
+				const indexEntry = index?.entries.get(p);
+				if (
+					st !== null && index !== null && indexEntry != null &&
+					!isGitControlFile(p) &&
+					statMatchesIndex(indexEntry, st.size, st.mtime, st.ctime, index.mtimeMs)
+				) {
+					this.entries.set(p, {
+						kind: "file",
+						data: new Uint8Array(0),
+						mtimeMs: st.mtime,
+						ctimeMs: st.ctime,
+						dirty: false,
+						lazySize: st.size,
+					});
+				} else {
+					await this.hydrateFile(adapter, p);
+				}
+			}
+			await maybeYield(counter);
+		}
+	}
+
+	/**
+	 * Reads every unread file libgit2 might now open: one whose index entry
+	 * changed since it was left unread (a merge or reset rewrote it), and one
+	 * an operation already failed on. Cheap when there is nothing to do: one
+	 * parse of `.git/index`.
+	 */
+	async loadStale(adapter: DataAdapterLike): Promise<number> {
+		if (this.lazyCount() === 0) {
+			this.lazyMisses.clear();
+			return 0;
+		}
+		const index = this.readIndexStats();
+		const stale: string[] = [];
+		for (const [p, entry] of this.entries) {
+			if (entry.kind !== "file" || entry.lazySize === undefined) continue;
+			const indexEntry = index?.entries.get(p);
+			if (
+				this.lazyMisses.has(p) || index === null || indexEntry == null ||
+				!statMatchesIndex(indexEntry, entry.lazySize, entry.mtimeMs, entry.ctimeMs, index.mtimeMs)
+			) {
+				stale.push(p);
+			}
+		}
+		for (const p of stale) await this.hydrateFile(adapter, p);
+		this.lazyMisses.clear();
+		return stale.length;
+	}
+
+	private readIndexStats(): IndexStats | null {
+		const entry = this.entries.get(".git/index");
+		if (entry?.kind !== "file" || entry.lazySize !== undefined) return null;
+		const entries = parseIndexStats(entry.data);
+		return entries === null ? null : { entries, mtimeMs: entry.mtimeMs };
 	}
 
 	private async hydrateDir(
@@ -395,6 +607,91 @@ export class VaultMirror {
 			await this.hydrateFile(adapter, this.normalize(file));
 			await maybeYield(yieldCounter);
 		}
+	}
+
+	/**
+	 * Bring the mirror up to date with `adapter` without re-reading what
+	 * hasn't changed: the incremental counterpart of `reset()` +
+	 * `hydrateAll()`. A full re-hydrate reads the whole vault plus `.git`; on
+	 * Android that goes through the Capacitor bridge, and on a 230 MB vault
+	 * it costs ~200 MB of reads and most of a minute on every sync, while the
+	 * files that changed since the previous sync are usually a handful.
+	 *
+	 * A clean entry is kept when the adapter's size and mtime still match the
+	 * ones it was read with; anything else is read again. Every file is
+	 * `stat`ed from the adapter itself rather than from a cache, so an edit
+	 * Obsidian's own watcher missed is still seen. Paths gone from the
+	 * adapter are dropped (what `reset()` was for). The result is exactly
+	 * what `reset()` + `hydrateAll()` would leave, including for unflushed
+	 * work: a dirty entry is re-read from the adapter (or dropped) and
+	 * pending deletions are forgotten, since callers rely on that to throw
+	 * away a git operation that failed before its flush.
+	 */
+	async refresh(adapter: DataAdapterLike, subtree = ""): Promise<{ read: number; kept: number; removed: number }> {
+		const root = this.normalize(subtree);
+		const seen = new Set<string>([root]);
+		if (root === "") this.deletions.clear();
+		else for (const d of [...this.deletions]) if (d === root || d.startsWith(`${root}/`)) this.deletions.delete(d);
+		const files: string[] = [];
+		const walk = async (dir: string): Promise<void> => {
+			if (this.entries.get(dir)?.kind !== "dir") this.entries.set(dir, { kind: "dir" });
+			seen.add(dir);
+			const listing = await adapter.list(dir === "" ? "/" : dir);
+			for (const folder of listing.folders) await walk(this.normalize(folder));
+			for (const file of listing.files) files.push(this.normalize(file));
+		};
+		await walk(root);
+
+		// Stats are tiny but each is a bridge round-trip on mobile, so they go
+		// out a few at a time instead of strictly one after another.
+		const stats = new Array<AdapterStatLike | null>(files.length);
+		const counter = { n: 0 };
+		for (let i = 0; i < files.length; i += STAT_BATCH) {
+			const batch = files.slice(i, i + STAT_BATCH);
+			const got = await Promise.all(batch.map((f) => adapter.stat(f === "" ? "/" : f)));
+			for (let j = 0; j < got.length; j++) stats[i + j] = got[j];
+			await maybeYield(counter);
+		}
+
+		let read = 0;
+		let kept = 0;
+		for (let i = 0; i < files.length; i++) {
+			const p = files[i];
+			seen.add(p);
+			const st = stats[i];
+			const existing = this.entries.get(p);
+			if (
+				existing?.kind === "file" &&
+				!existing.dirty &&
+				st !== null &&
+				st.mtime === existing.mtimeMs &&
+				st.size === sizeOf(existing)
+			) {
+				kept++;
+				continue;
+			}
+			const buf = await adapter.readBinary(p === "" ? "/" : p);
+			this.entries.set(p, {
+				kind: "file",
+				data: new Uint8Array(buf),
+				mtimeMs: st?.mtime ?? 0,
+				ctimeMs: st?.ctime ?? 0,
+				dirty: false,
+			});
+			read++;
+			await maybeYield(counter);
+		}
+
+		let removed = 0;
+		const prefix = root === "" ? "" : `${root}/`;
+		for (const path of [...this.entries.keys()]) {
+			if (path === "" || seen.has(path)) continue;
+			if (root !== "" && path !== root && !path.startsWith(prefix)) continue;
+			this.entries.delete(path);
+			removed++;
+		}
+		await this.loadStale(adapter);
+		return { read, kept, removed };
 	}
 
 	/** Read a single file out of `adapter` into memory (not marked dirty:
@@ -781,7 +1078,9 @@ export function describeClassicFsBackend(mirror: VaultMirror, globals: ClassicFs
 			if (attr.size !== undefined) {
 				const path = node.mirrorPath ?? "";
 				try {
-					const existing = mirror.has(path) ? mirror.readFile(path) : new Uint8Array(0);
+					// Truncating to zero (open with O_TRUNC, as checkout does)
+					// needs no old bytes, so it works on an unread file too.
+					const existing = attr.size === 0 || !mirror.has(path) ? new Uint8Array(0) : mirror.readFile(path);
 					const resized = new Uint8Array(attr.size);
 					resized.set(existing.subarray(0, Math.min(existing.byteLength, attr.size)));
 					mirror.writeFile(path, resized);
@@ -910,7 +1209,9 @@ export function describeClassicFsBackend(mirror: VaultMirror, globals: ClassicFs
 			let existing: Uint8Array;
 			try {
 				existing = mirror.has(path) ? mirror.readFile(path) : new Uint8Array(0);
-			} catch {
+			} catch (err) {
+				// An unread file's old bytes matter here; anything else reads as empty.
+				if (err instanceof VaultMirrorError && err.code === "EIO") return rethrow(err);
 				existing = new Uint8Array(0);
 			}
 			const end = position + length;
