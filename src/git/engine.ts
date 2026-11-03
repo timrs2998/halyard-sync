@@ -688,6 +688,9 @@ export class GitEngine {
 	 * instance pointed at an existing `.git`. */
 	private async ensureRepo(): Promise<Libgit2Repository> {
 		this.assertOpen();
+		// The mirror leaves files libgit2 won't open unread; read any that a
+		// previous operation (a merge, a reset) made it want again.
+		await this.opts.mirror.loadStale(this.opts.adapter);
 		if (this.repo !== null) return this.repo;
 		const hasGit = await this.opts.adapter.exists(".git");
 		if (!hasGit) {
@@ -1565,7 +1568,7 @@ export interface CreateGitEngineOptions {
 export async function createGitEngine(options: CreateGitEngineOptions): Promise<GitEngine> {
 	const rawModule = await options.instantiateModule();
 	const mirror = new VaultMirror();
-	await mirror.hydrateAll(options.adapter);
+	await mirror.hydrateAll(options.adapter, "", { lazy: true });
 
 	const Module = rawModule;
 	const errnoCodes = deriveErrnoCodes(Module);

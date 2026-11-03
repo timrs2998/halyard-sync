@@ -14,13 +14,14 @@
 
 import { describe, expect, it, vi } from "vitest";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createGitEngine, GitEngine } from "../src/git/engine";
 import { wrapLibgit2Module } from "../src/git/libgit2/engine";
-import { VaultMirror } from "../src/git/libgit2/fs-backend";
+import { VaultMirror, VaultMirrorError } from "../src/git/libgit2/fs-backend";
 import type { RequestUrlLike } from "../src/git/http-client";
 import type { GitCryptKeyMaterial } from "../src/auth/secrets";
 import { startGitHttpBackend } from "./libgit2/helpers/git-http-backend";
@@ -901,6 +902,162 @@ describe.skipIf(factory === null)("GitEngine stat cache after checkout", () => {
 			} finally {
 				spy.mockRestore();
 			}
+		} finally {
+			await server.close();
+		}
+	});
+});
+
+/** Zeroes one entry's size in a version 2 index, as libgit2 does to a racily
+ * clean entry, and recomputes the trailing checksum libgit2 verifies. */
+function smudgeIndexEntry(index: Uint8Array, path: string): Uint8Array {
+	const out = index.slice();
+	const view = new DataView(out.buffer);
+	let pos = 12;
+	for (let i = 0; i < view.getUint32(8); i++) {
+		const nameLen = view.getUint16(pos + 60) & 0xfff;
+		if (new TextDecoder().decode(out.subarray(pos + 62, pos + 62 + nameLen)) === path) {
+			view.setUint32(pos + 36, 0);
+			out.set(createHash("sha1").update(out.subarray(0, out.byteLength - 20)).digest(), out.byteLength - 20);
+			return out;
+		}
+		pos += Math.floor((62 + nameLen + 8) / 8) * 8;
+	}
+	throw new Error(`no index entry for ${path}`);
+}
+
+describe.skipIf(factory === null)("GitEngine leaves unchanged files unread", () => {
+	const big = (fill: number) => Buffer.alloc(300_000, fill);
+
+	/** Clone, then one status so the index carries the adapter's stat, as it
+	 * does on a device after its first sync. */
+	async function clonedVault(server: { url: string }) {
+		const adapter = new MockAdapter();
+		const cloner = await makeEngine(adapter, makeRealRequestUrl());
+		await cloner.clone({ url: server.url });
+		await cloner.getChangedFiles();
+		await cloner.close();
+		return adapter;
+	}
+
+	function mirrorOf(engine: GitEngine): VaultMirror {
+		return (engine as unknown as { opts: { mirror: VaultMirror } }).opts.mirror;
+	}
+
+	async function seedBigFiles(seedDir: string, bareDir: string): Promise<void> {
+		mkdirSync(join(seedDir, "Files"));
+		for (let i = 0; i < 3; i++) writeFileSync(join(seedDir, `Files/big${i}.bin`), big(i));
+		writeFileSync(join(seedDir, ".gitattributes"), "*.bin binary\n");
+		pushRemoteChange(seedDir, bareDir, "b.md", "b\n", "more files");
+	}
+
+	it("reads only .git and changed files at engine start, and still commits edits", async () => {
+		const { server, seedDir, bareDir } = await setupSharedRemote("a.md");
+		try {
+			await seedBigFiles(seedDir, bareDir);
+			const adapter = await clonedVault(server);
+
+			const readBinary = vi.spyOn(adapter, "readBinary");
+			const engine = await makeEngine(adapter, makeRealRequestUrl());
+			const read = readBinary.mock.calls.map(([path]) => path).filter((path) => !path.startsWith(".git/"));
+			readBinary.mockRestore();
+			expect(read).toEqual([".gitattributes"]);
+			expect(mirrorOf(engine).isLazy("Files/big0.bin")).toBe(true);
+			expect(mirrorOf(engine).stat("Files/big0.bin").size).toBe(300_000);
+
+			expect(await engine.getChangedFiles()).toEqual([]);
+			await adapter.write("b.md", "b edited\n");
+			expect(await engine.stageAndCommit("edit b")).not.toBeNull();
+			await engine.close();
+
+			// Check the commit with the real git CLI against the vault's .git.
+			const gitDir = mkdtempSync(join(tmpdir(), "halyard-lazy-git-"));
+			for (const [path, data] of adapter.files) {
+				if (!path.startsWith(".git/")) continue;
+				mkdirSync(dirname(join(gitDir, path.slice(5))), { recursive: true });
+				writeFileSync(join(gitDir, path.slice(5)), data);
+			}
+			expect(git(["--git-dir", gitDir, "show", "HEAD:b.md"], tmpdir())).toBe("b edited");
+			expect(git(["--git-dir", gitDir, "rev-parse", "HEAD:Files/big1.bin"], tmpdir())).toBe(
+				git(["rev-parse", "main:Files/big1.bin"], bareDir)
+			);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it("merges remote edits, deletes and adds of unread files", async () => {
+		const { server, seedDir, bareDir } = await setupSharedRemote("a.md");
+		try {
+			await seedBigFiles(seedDir, bareDir);
+			const adapter = await clonedVault(server);
+			const engine = await makeEngine(adapter, makeRealRequestUrl());
+			expect(mirrorOf(engine).isLazy("Files/big1.bin")).toBe(true);
+
+			writeFileSync(join(seedDir, "Files/big1.bin"), big(7));
+			execFileSync("rm", [join(seedDir, "Files/big2.bin")]);
+			writeFileSync(join(seedDir, "Files/big5.bin"), big(5));
+			pushRemoteChange(seedDir, bareDir, "a.md", "a remote\n", "remote edits");
+			await adapter.write("b.md", "b local\n");
+
+			await engine.fetch("main");
+			expect(await engine.stageAndCommit("local edit")).not.toBeNull();
+			expect((await engine.mergeUpstream("main")).kind).toBe("merged");
+			expect(await engine.getChangedFiles()).toEqual([]);
+
+			expect(Buffer.from(await adapter.readBinary("Files/big1.bin")).equals(big(7))).toBe(true);
+			expect(await adapter.exists("Files/big2.bin")).toBe(false);
+			expect(Buffer.from(await adapter.readBinary("Files/big5.bin")).equals(big(5))).toBe(true);
+			expect(Buffer.from(await adapter.readBinary("Files/big0.bin")).equals(big(0))).toBe(true);
+			expect(await adapter.read("a.md")).toBe("a remote\n");
+			expect(await adapter.read("b.md")).toBe("b local\n");
+			await engine.close();
+		} finally {
+			await server.close();
+		}
+	});
+
+	it("hard reset to the remote rewrites unread files", async () => {
+		const { server, seedDir, bareDir } = await setupSharedRemote("a.md");
+		try {
+			await seedBigFiles(seedDir, bareDir);
+			const adapter = await clonedVault(server);
+			const engine = await makeEngine(adapter, makeRealRequestUrl());
+			writeFileSync(join(seedDir, "Files/big1.bin"), big(8));
+			pushRemoteChange(seedDir, bareDir, "a.md", "reset\n", "remote for reset");
+
+			await engine.fetch("main");
+			await engine.hardResetToRemote("main");
+			expect(await engine.getChangedFiles()).toEqual([]);
+			expect(Buffer.from(await adapter.readBinary("Files/big1.bin")).equals(big(8))).toBe(true);
+			expect(Buffer.from(await adapter.readBinary("Files/big0.bin")).equals(big(0))).toBe(true);
+			await engine.close();
+		} finally {
+			await server.close();
+		}
+	});
+
+	it("fails a read of an unread file instead of returning nothing, then reads it", async () => {
+		const { server, seedDir, bareDir } = await setupSharedRemote("a.md");
+		try {
+			await seedBigFiles(seedDir, bareDir);
+			const adapter = await clonedVault(server);
+			const engine = await makeEngine(adapter, makeRealRequestUrl());
+			const mirror = mirrorOf(engine);
+
+			expect(() => mirror.readFile("Files/big0.bin")).toThrow(VaultMirrorError);
+			expect(() => mirror.rename("Files/big0.bin", "Files/moved.bin")).toThrow(VaultMirrorError);
+			expect(await mirror.loadStale(adapter)).toBe(1);
+			expect(mirror.isLazy("Files/big0.bin")).toBe(false);
+			expect(Buffer.from(mirror.readFile("Files/big0.bin")).equals(big(0))).toBe(true);
+
+			// libgit2 "smudges" a racily clean entry by zeroing its size, which
+			// makes status hash the file; it must be read before status runs.
+			mirror.writeFile(".git/index", smudgeIndexEntry(mirror.readFile(".git/index"), "Files/big1.bin"), mirror.stat(".git/index").mtimeMs);
+			expect(await engine.getChangedFiles()).toEqual([]);
+			expect(mirror.isLazy("Files/big1.bin")).toBe(false);
+			expect(mirror.isLazy("Files/big2.bin")).toBe(true);
+			await engine.close();
 		} finally {
 			await server.close();
 		}
