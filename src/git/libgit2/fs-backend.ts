@@ -174,6 +174,9 @@ export interface VaultMirrorStat {
  */
 const YIELD_EVERY = 200;
 
+/** How many adapter `stat` calls `refresh()` keeps in flight at once. */
+const STAT_BATCH = 16;
+
 function maybeYield(counter: { n: number }): Promise<void> {
 	counter.n += 1;
 	if (counter.n % YIELD_EVERY !== 0) return Promise.resolve();
@@ -395,6 +398,90 @@ export class VaultMirror {
 			await this.hydrateFile(adapter, this.normalize(file));
 			await maybeYield(yieldCounter);
 		}
+	}
+
+	/**
+	 * Bring the mirror up to date with `adapter` without re-reading what
+	 * hasn't changed: the incremental counterpart of `reset()` +
+	 * `hydrateAll()`. A full re-hydrate reads the whole vault plus `.git`; on
+	 * Android that goes through the Capacitor bridge, and on a 230 MB vault
+	 * it costs ~200 MB of reads and most of a minute on every sync, while the
+	 * files that changed since the previous sync are usually a handful.
+	 *
+	 * A clean entry is kept when the adapter's size and mtime still match the
+	 * ones it was read with; anything else is read again. Every file is
+	 * `stat`ed from the adapter itself rather than from a cache, so an edit
+	 * Obsidian's own watcher missed is still seen. Paths gone from the
+	 * adapter are dropped (what `reset()` was for). The result is exactly
+	 * what `reset()` + `hydrateAll()` would leave, including for unflushed
+	 * work: a dirty entry is re-read from the adapter (or dropped) and
+	 * pending deletions are forgotten, since callers rely on that to throw
+	 * away a git operation that failed before its flush.
+	 */
+	async refresh(adapter: DataAdapterLike, subtree = ""): Promise<{ read: number; kept: number; removed: number }> {
+		const root = this.normalize(subtree);
+		const seen = new Set<string>([root]);
+		if (root === "") this.deletions.clear();
+		else for (const d of [...this.deletions]) if (d === root || d.startsWith(`${root}/`)) this.deletions.delete(d);
+		const files: string[] = [];
+		const walk = async (dir: string): Promise<void> => {
+			if (this.entries.get(dir)?.kind !== "dir") this.entries.set(dir, { kind: "dir" });
+			seen.add(dir);
+			const listing = await adapter.list(dir === "" ? "/" : dir);
+			for (const folder of listing.folders) await walk(this.normalize(folder));
+			for (const file of listing.files) files.push(this.normalize(file));
+		};
+		await walk(root);
+
+		// Stats are tiny but each is a bridge round-trip on mobile, so they go
+		// out a few at a time instead of strictly one after another.
+		const stats = new Array<AdapterStatLike | null>(files.length);
+		const counter = { n: 0 };
+		for (let i = 0; i < files.length; i += STAT_BATCH) {
+			const batch = files.slice(i, i + STAT_BATCH);
+			const got = await Promise.all(batch.map((f) => adapter.stat(f === "" ? "/" : f)));
+			for (let j = 0; j < got.length; j++) stats[i + j] = got[j];
+			await maybeYield(counter);
+		}
+
+		let read = 0;
+		let kept = 0;
+		for (let i = 0; i < files.length; i++) {
+			const p = files[i];
+			seen.add(p);
+			const st = stats[i];
+			const existing = this.entries.get(p);
+			if (
+				existing?.kind === "file" &&
+				!existing.dirty &&
+				st !== null &&
+				st.mtime === existing.mtimeMs &&
+				st.size === existing.data.byteLength
+			) {
+				kept++;
+				continue;
+			}
+			const buf = await adapter.readBinary(p === "" ? "/" : p);
+			this.entries.set(p, {
+				kind: "file",
+				data: new Uint8Array(buf),
+				mtimeMs: st?.mtime ?? 0,
+				ctimeMs: st?.ctime ?? 0,
+				dirty: false,
+			});
+			read++;
+			await maybeYield(counter);
+		}
+
+		let removed = 0;
+		const prefix = root === "" ? "" : `${root}/`;
+		for (const path of [...this.entries.keys()]) {
+			if (path === "" || seen.has(path)) continue;
+			if (root !== "" && path !== root && !path.startsWith(prefix)) continue;
+			this.entries.delete(path);
+			removed++;
+		}
+		return { read, kept, removed };
 	}
 
 	/** Read a single file out of `adapter` into memory (not marked dirty:
