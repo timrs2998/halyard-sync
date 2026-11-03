@@ -276,3 +276,96 @@ describe("VaultMirror <-> DataAdapterLike hydrate/flush", () => {
 		expect(adapter.files.size).toBe(450);
 	});
 });
+
+describe("VaultMirror.refresh (incremental re-hydration)", () => {
+	const text = (m: VaultMirror, p: string) => new TextDecoder().decode(m.readFile(p));
+	const reads = (a: MockAdapter) => a.log.filter((e) => e[0] === "readBinary").map((e) => e[1]);
+
+	class CountingAdapter extends MockAdapter {
+		async readBinary(path: string): Promise<ArrayBuffer> {
+			this.log.push(["readBinary", path]);
+			return super.readBinary(path);
+		}
+	}
+
+	it("re-reads only files whose size or mtime changed", async () => {
+		const adapter = new CountingAdapter();
+		await adapter.mkdir(".git");
+		await adapter.write(".git/HEAD", "ref: refs/heads/main");
+		await adapter.write("a.md", "aaa");
+		await adapter.write("b.md", "bbb");
+		const mirror = new VaultMirror();
+		await mirror.hydrateAll(adapter);
+
+		await adapter.write("b.md", "BBB"); // same size, newer mtime
+		await adapter.write("c.md", "new");
+		adapter.log.length = 0;
+		const r = await mirror.refresh(adapter);
+
+		expect(reads(adapter).sort()).toEqual(["b.md", "c.md"]);
+		expect(r).toMatchObject({ read: 2, kept: 2 });
+		expect(text(mirror, "a.md")).toBe("aaa");
+		expect(text(mirror, "b.md")).toBe("BBB");
+		expect(text(mirror, "c.md")).toBe("new");
+	});
+
+	it("drops files and folders deleted from the adapter, like reset() + hydrateAll()", async () => {
+		const adapter = new MockAdapter();
+		await adapter.mkdir("dir");
+		await adapter.write("dir/x.md", "x");
+		await adapter.write("keep.md", "k");
+		const mirror = new VaultMirror();
+		await mirror.hydrateAll(adapter);
+
+		await adapter.remove("dir/x.md");
+		await adapter.rmdir("dir", true);
+		await mirror.refresh(adapter);
+
+		expect(mirror.has("dir/x.md")).toBe(false);
+		expect(mirror.has("dir")).toBe(false);
+		expect(mirror.readdir("")).toEqual(["keep.md"]);
+	});
+
+	it("throws away unflushed git work the way reset() did", async () => {
+		const adapter = new MockAdapter();
+		await adapter.write("a.md", "disk");
+		const mirror = new VaultMirror();
+		await mirror.hydrateAll(adapter);
+
+		mirror.writeFile("a.md", new TextEncoder().encode("git"));
+		mirror.writeFile("only-in-git.md", new TextEncoder().encode("g"));
+		mirror.unlink("a.md");
+		mirror.writeFile("a.md", new TextEncoder().encode("git again"));
+		await mirror.refresh(adapter);
+
+		expect(text(mirror, "a.md")).toBe("disk");
+		expect(mirror.has("only-in-git.md")).toBe(false);
+		await mirror.flush(adapter);
+		expect(adapter.log.filter((e) => e[0] === "writeBinary" || e[0] === "remove")).toHaveLength(0);
+	});
+
+	it("leaves the mirror exactly as a fresh hydrate would", async () => {
+		const adapter = new MockAdapter();
+		await adapter.mkdir("n");
+		await adapter.mkdir("n/empty");
+		await adapter.write("n/1.md", "one");
+		await adapter.write("2.md", "two");
+		const mirror = new VaultMirror();
+		await mirror.hydrateAll(adapter);
+		await adapter.write("n/1.md", "uno!");
+		await adapter.remove("2.md");
+		await adapter.mkdir("m");
+		await adapter.write("m/3.md", "three");
+		await mirror.refresh(adapter);
+
+		const fresh = new VaultMirror();
+		await fresh.hydrateAll(adapter);
+		const snapshot = (m: VaultMirror, dir = ""): unknown =>
+			m.readdir(dir).sort().map((name) => {
+				const p = dir === "" ? name : `${dir}/${name}`;
+				const st = m.stat(p);
+				return st.isDirectory ? [name, snapshot(m, p)] : [name, text(m, p), st.mtimeMs];
+			});
+		expect(snapshot(mirror)).toEqual(snapshot(fresh));
+	});
+});

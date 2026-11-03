@@ -924,8 +924,7 @@ export class GitEngine {
 
 	async getChangedFilesDetail(additionalIgnorePatterns: readonly string[] = []): Promise<ChangedFilesResult> {
 		const repo = await this.ensureRepo();
-		this.opts.mirror.reset();
-		await this.opts.mirror.hydrateAll(this.opts.adapter);
+		await this.opts.mirror.refresh(this.opts.adapter);
 		const entries = await repo.status();
 		const managedPolicy = await this.readTextFile(".gitignore");
 		const managedPatterns = managedPolicy === null
@@ -1043,8 +1042,7 @@ export class GitEngine {
 		// general stageAndCommit path after unstagePath() would re-hydrate from
 		// the adapter and restore the pre-removal .git/index, losing index-only
 		// removals before commit.
-		this.opts.mirror.reset();
-		await this.opts.mirror.hydrateAll(this.opts.adapter);
+		await this.opts.mirror.refresh(this.opts.adapter);
 		if (gitignoreChanged) await repo.stagePath(".gitignore");
 
 		// Local enumeration covers unchanged package files. Status contributes
@@ -1280,8 +1278,7 @@ export class GitEngine {
 			case "merged":
 				await this.flush();
 				await this.restorePluginPolicySnapshot(snapshot);
-				this.opts.mirror.reset();
-				await this.opts.mirror.hydrateAll(this.opts.adapter);
+				await this.opts.mirror.refresh(this.opts.adapter);
 				return outcome;
 			case "conflict":
 				return { kind: "conflict", files: outcome.paths };
