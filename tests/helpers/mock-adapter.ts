@@ -11,6 +11,10 @@ import type {
 export class MockAdapter implements DataAdapterLike {
 	files = new Map<string, Uint8Array>();
 	folders = new Set<string>();
+	/** Like a real filesystem, every write moves the file's mtime forward;
+	 * the first write reports 2000. */
+	mtimes = new Map<string, number>();
+	private clock = 1999;
 	log: Array<[string, ...unknown[]]> = [];
 
 	private assertParent(path: string): void {
@@ -31,7 +35,7 @@ export class MockAdapter implements DataAdapterLike {
 			return {
 				type: "file",
 				ctime: 1000,
-				mtime: 2000,
+				mtime: this.mtimes.get(path) ?? 2000,
 				size: this.files.get(path)!.byteLength,
 			};
 		}
@@ -68,12 +72,14 @@ export class MockAdapter implements DataAdapterLike {
 		this.log.push(["write", path]);
 		this.assertParent(path);
 		this.files.set(path, new TextEncoder().encode(data));
+		this.mtimes.set(path, ++this.clock);
 	}
 
 	async writeBinary(path: string, data: ArrayBuffer): Promise<void> {
 		this.log.push(["writeBinary", path]);
 		this.assertParent(path);
 		this.files.set(path, new Uint8Array(data));
+		this.mtimes.set(path, ++this.clock);
 	}
 
 	async mkdir(path: string): Promise<void> {

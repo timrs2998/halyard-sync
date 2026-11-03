@@ -96,10 +96,17 @@ int halyard_status_collect(
 	if (rc < 0) return rc;
 
 	opts.show = GIT_STATUS_SHOW_INDEX_AND_WORKDIR;
+	/* UPDATE_INDEX: checkout records the mirror's write time in the index,
+	 * but the adapter reports its own mtime once the file is flushed, so
+	 * every checked-out file looks stat-dirty from then on. Without it, each
+	 * status re-hashes the whole vault and never records that the content
+	 * still matched. With it, a clean file's fresh stat goes into the index
+	 * and the next status trusts it. */
 	opts.flags = GIT_STATUS_OPT_INCLUDE_UNTRACKED |
 		GIT_STATUS_OPT_RECURSE_UNTRACKED_DIRS |
 		GIT_STATUS_OPT_RENAMES_HEAD_TO_INDEX |
-		GIT_STATUS_OPT_RENAMES_INDEX_TO_WORKDIR;
+		GIT_STATUS_OPT_RENAMES_INDEX_TO_WORKDIR |
+		GIT_STATUS_OPT_UPDATE_INDEX;
 	if (npathspecs > 0) {
 		opts.pathspec.strings = (char **)pathspecs;
 		opts.pathspec.count = (size_t)npathspecs;
